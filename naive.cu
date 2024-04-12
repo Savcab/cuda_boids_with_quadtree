@@ -4,11 +4,11 @@
 #include <time.h>
 #include <fstream>
 
-#define spaceSize 1000
+#define spaceSize 10000
 #define numBoids  128//has to be multiple of blockSize
 #define blockSize 32
-#define numIters 1000
-#define visualRange 200
+#define numIters 5000
+#define visualRange 10000
 #define boidMass 1
 #define maxSpeed 100
 #define minDistance 5
@@ -230,6 +230,7 @@ int main(int argc, char **argv)
     struct timespec start, stop; 
     double time;
     std::ofstream ofile("output.txt");
+    std::ofstream oTestFile("test.txt");
 
     // Start calling the gpu
     // cudaEventRecord(startEvent, 0);
@@ -252,11 +253,12 @@ int main(int argc, char **argv)
         {
             ofile << "Boid " << j << ": " << boids[j].x << ", " << boids[j].y << "\n";
         }
+        oTestFile << boids[0].x << " " << boids[0].y << "\n";
     }
    if( clock_gettime( CLOCK_REALTIME, &stop) == -1 ) { perror( "clock gettime" );}	  
     ofile.close();
     time = (stop.tv_sec - start.tv_sec)+ (double)(stop.tv_nsec - start.tv_nsec)/1e9;
-    printf("time is %d\n", time*1e9);
+    printf("time is %.9f\n", time*1e9);
 
     // Free the memory
     cudaFreeHost(boids);
