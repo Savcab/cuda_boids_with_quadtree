@@ -2,9 +2,10 @@
 #include <stdio.h>
 #include <cublas.h>
 #include <time.h>
+#include <fstream>
 
 #define spaceSize 1000
-#define numBoids 1024 //has to be multiple of blockSize^2
+#define numBoids  128//has to be multiple of blockSize
 #define blockSize 32
 #define numIters 1000
 #define visualRange 200
@@ -15,15 +16,15 @@
 #define repulsionWeight 0.5
 #define alignmentWeight 0.05
 
-void checkCudaError(int id)
+void checkCudaError(std::string str)
 {
     cudaError_t error = cudaGetLastError();
     if (error != cudaSuccess) {
-        fprintf(stderr, "CUDA error(id=%d): %s\n", id, cudaGetErrorString(error));
+        fprintf(stderr, "CUDA error: %s\n%s\n\n", str, cudaGetErrorString(error));
     }
 }
 
-__host__ __device__ struct Boid
+struct Boid
 {
     double x;
     double y;
@@ -31,16 +32,16 @@ __host__ __device__ struct Boid
     double yVel;
     double xAcc;
     double yAcc;
-}
+};
 
-__host__ __device__ struct Force
+struct Force
 {
     double Fx;
     double Fy;
-}
+};
 
 // Helper function to calculate distance between two boids
-__device__ double calcDistance(Boid& b1, Boid& b1)
+__device__ double calcDist(Boid& b1, Boid& b2)
 {
     return sqrt((b1.x - b2.x) * (b1.x - b2.x) + (b1.y - b2.y) * (b1.y - b2.y));
 }
@@ -61,7 +62,7 @@ __device__ void applyCenterAttr(Boid& boid, int currIdx, Boid* boids, int nBoids
     int count = 0;
     for(int i = 0; i < nBoids; i++)
     {
-        if(calcDistance(boids[currIdx], boids[i]) <= visualRange && i != currIdx)
+        if(calcDist(boid, boids[i]) <= visualRange && i != currIdx)
         {
             xSum += boids[i].x;
             ySum += boids[i].y;
@@ -75,12 +76,16 @@ __device__ void applyCenterAttr(Boid& boid, int currIdx, Boid* boids, int nBoids
     // Calculate the force
     xSum /= count;
     ySum /= count;
-    double distance = sqrt((xSum - b1.x) * (xSum - b1.x) + (ySum - b1.y) * (ySum - b1.y));
-    double sinTheta = (ySum - b1.y) / distance;
-    double cosTheta = (xSum - b1.x) / distance;
+    double distance = sqrt((xSum - boid.x) * (xSum - boid.x) + (ySum - boid.y) * (ySum - boid.y));
+    if(distance == 0)
+    {
+        return;
+    }
+    double sinTheta = (ySum - boid.y) / distance;
+    double cosTheta = (xSum - boid.x) / distance;
     Force force = {centerAttrWeight * count * cosTheta / distance, 
                     centerAttrWeight * count * sinTheta / distance};
-    applyForce(boids[currIdx], force);
+    applyForce(boid, force);
 }
 
 // Apply the repulsion force to avoid other boids
@@ -88,14 +93,15 @@ __device__ void applyAvoidOthers(Boid& boid, int currIdx, Boid* boids, int nBoid
 {
     for(int i = 0; i < nBoids; i++)
     {
-        if(calcDistance(boids[currIdx], boids[i]) < minDistance && i != currIdx)
+        double distance = calcDist(boid, boids[i]);
+        if(distance < minDistance && i != currIdx && distance != 0)
         {
-            double distance = calcDistance(boids[currIdx], boids[i]);
-            double sinTheta = (boids[i].y - boids[currIdx].y) / distance;
-            double cosTheta = (boids[i].x - boids[currIdx].x) / distance;
+            double distance = calcDist(boid, boids[i]);
+            double sinTheta = (boids[i].y - boid.y) / distance;
+            double cosTheta = (boids[i].x - boid.x) / distance;
             Force force = {repulsionWeight * cosTheta * (distance - minDistance), 
                             repulsionWeight * sinTheta * (distance - minDistance)};
-            applyForce(boids[currIdx], force);
+            applyForce(boid, force);
         }
     }
 }
@@ -108,9 +114,9 @@ __device__ void applyAlignment(Boid& boid, int currIdx, Boid* boids, int nBoids)
     int count = 0;
     for(int i = 0; i < nBoids; i++)
     {
-        if(calcDistance(boids[currIdx], boids[i]) <= visualRange && i != currIdx)
+        if(calcDist(boid, boids[i]) <= visualRange && i != currIdx)
         {
-            vXSym += boids[i].xVel;
+            vXSum += boids[i].xVel;
             vYSum += boids[i].yVel;
             count++;
         }
@@ -122,9 +128,9 @@ __device__ void applyAlignment(Boid& boid, int currIdx, Boid* boids, int nBoids)
     // Align the velocity slightly to average velocity
     vXSum /= count;
     vYSum /= count;
-    Force force = {(vXSum - boids[currIdx].xVel)*alignmentWeight, 
-                    (vYSum - boids[currIdx].yVel)*alignmentWeight};
-    applyForce(boids[currIdx], force);
+    Force force = {(vXSum - boid.xVel)*alignmentWeight, 
+                    (vYSum - boid.yVel)*alignmentWeight};
+    applyForce(boid, force);
 }
 
 // Helper function at the end of each iteration to update position based off velocity
@@ -177,7 +183,7 @@ __device__ void updateBoid(Boid& boid)
 }
 
 // One step of naive: calculate the acceleration of each boid. DOESN'T apply it yet
-__global__ void naiveCalcAcc(boid* boids, int nBoids)
+__global__ void naiveCalcAcc(Boid* boids, int nBoids)
 {
     int currIdx = blockIdx.x * blockDim.x + threadIdx.x;
     Boid boidCpy = boids[currIdx];
@@ -193,7 +199,7 @@ __global__ void naiveUpdateBoids(Boid* boids, int nBoids)
 {
     int currIdx = blockIdx.x * blockDim.x + threadIdx.x;
     Boid boidCpy = boids[currIdx];
-    updatePosition(boidCpy);
+    updateBoid(boidCpy);
     boids[currIdx] = boidCpy;
 }
 
@@ -210,8 +216,8 @@ int main(int argc, char **argv)
     {
         boids[i].x = i * gap;
         boids[i].y = i * gap;
-        boids[i].xVel = random() % 20 - 10;
-        boids[i].yVel = random() % 20 - 10;
+        boids[i].xVel = rand() % 20 - 10;
+        boids[i].yVel = rand() % 20 - 10;
         boids[i].xAcc = 0;
         boids[i].yAcc = 0;
     }
@@ -220,25 +226,26 @@ int main(int argc, char **argv)
     Boid* gpu_boids;
     cudaMalloc(&gpu_boids, sizeof(Boid) * numBoids);
     
-    // create events and streams
-    cudaEvent_t startEvent, stopEvent;
-    cudaEventCreate(&startEvent);
-    cudaEventCreate(&stopEvent);
+    // start time
+    struct timespec start, stop; 
+    double time;
     std::ofstream ofile("output.txt");
 
     // Start calling the gpu
-    cudaEventRecord(startEvent, 0);
+    // cudaEventRecord(startEvent, 0);
     dim3 dimBlock(blockSize);
     dim3 dimGrid(numBoids/blockSize);
     // Run all the timesteps
+    if( clock_gettime( CLOCK_REALTIME, &start) == -1 ) { perror( "clock gettime" );}
     cudaMemcpy(gpu_boids, boids, sizeof(Boid) * numBoids, cudaMemcpyHostToDevice);
     for(int i = 0; i < numIters; i++)
     {
         naiveCalcAcc <<< dimGrid, dimBlock >>> (gpu_boids, numBoids);
-        checkCudaError(0);
+        checkCudaError("After naiveCalcAcc");
         naiveUpdateBoids <<< dimGrid, dimBlock >>> (gpu_boids, numBoids);
+        checkCudaError("After naiveUpdateBoids");
         cudaMemcpy(boids, gpu_boids, sizeof(Boid) * numBoids, cudaMemcpyDeviceToHost);
-        checkCudaError(0);
+        checkCudaError("After cudaMemcpy device to host");
         // Print out the all the boids
         ofile << "ITERATION " << i << "\n";
         for(int j = 0; j < numBoids; j++)
@@ -246,15 +253,10 @@ int main(int argc, char **argv)
             ofile << "Boid " << j << ": " << boids[j].x << ", " << boids[j].y << "\n";
         }
     }
+   if( clock_gettime( CLOCK_REALTIME, &stop) == -1 ) { perror( "clock gettime" );}	  
     ofile.close();
-
-    cudaEventRecord(stopEvent, 0);
-    cudaEventSynchronize(stopEvent);
-    float ms;
-    cudaEventElapsedTime(&ms, startEvent, stopEvent);
-
-    printf("time is %f ms\n", ms);
-    printf("boids[50].x is %f: \n", final_boids[50].x);
+    time = (stop.tv_sec - start.tv_sec)+ (double)(stop.tv_nsec - start.tv_nsec)/1e9;
+    printf("time is %d\n", time*1e9);
 
     // Free the memory
     cudaFreeHost(boids);
