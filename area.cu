@@ -217,8 +217,13 @@ __device__ void updateBoid(Boid& boid)
 // NOTE: 
 //  startIdx is inclusive
 //  endIdx is exclusive
-__global__ void parallelFindStartEnd(Boid* boids, int* startIdx, int* endIdx)
+__global__ void parallelFindStartEnd(BoidsContext* context)
 {
+    // Unpack the context
+    Boid* boids = context->boids;
+    int* startIdx = context->startIdx;
+    int* endIdx = context->endIdx;
+
     int threadId = blockIdx.x * blockDim.x + threadIdx.x;
     int startingIdx = numBoids * threadId / (gridDim.x * blockDim.x);
     int endingIdx  = numBoids * (threadId + 1) / (gridDim.x * blockDim.x);
@@ -240,9 +245,61 @@ __global__ void parallelFindStartEnd(Boid* boids, int* startIdx, int* endIdx)
     }
 }
 
-// One step of naive: calculate the acceleration of each boid. DOESN'T apply it yet
-__global__ void areaCalcAcc(Boid* boids, int* startIdx, int* endIdx)
+// Helper function to assign data in the shared memory within blocks
+__device__ void fillSharedMem(BoidsContext* context, Boids*** nghBoids, int** nghBoidsLen,
+        int nRelX, int nRelY, int nGlobalX, int nGlobalY)
 {
+    int nghId = areaId(nGlobalX, nGlobalY);
+    nghBoidsLen[nRelX][nRelY] = (context->startIdx[nghId] == INT_MAX && context->endIdx[nghId] == -1) ? 
+        0 : context->endIdx[nghId] - context->startIdx[nghId];
+    nghBoids[nRelX][nRelY] = context->boids + context->startIdx[nghId];
+}
+
+// Helper function for Rule 2 in fulling shared memory
+// NOTE: 
+//  xDir = direction of x in the line(-1 = left, 0 = no move, 1 = right)
+//  yDir = direction of y in the line(-1 = up, 0 = no move, 1 = down)
+__device__ void fillSharedMemLine(BoidsContext* context, Boids*** nghBoids, int** nghBoidsLen, int L,
+        int relX, int relY, int globalX, int globalY, int xDir, int yDir)
+{
+    for(int i = 1; i <= L 
+        && globalX+(i*xDir) >= 0 
+        && globalX+(i*xDir) < blockDim.x * gridDim.x
+        && globalY+(i*yDir) >= 0
+        && globalY+(i*yDir) < blockDim.y * gridDim.y
+        ; i++)
+    {
+        fillSharedMem(context, nghBoids, nghBoidsLen, relX+(i*xDir), relY+(i*yDir), globalX+(i*xDir), globalY+(i*yDir));
+    }
+}
+
+// Helper function for Rule 3 in fulling shared memory
+// NOTE: 
+//  xDir = direction of x in the line(-1 = left, 0 = no move, 1 = right)
+//  yDir = direction of y in the line(-1 = up, 0 = no move, 1 = down)
+__device__ void fillSharedMemSquare(BoidsContext* context, Boids*** nghBoids, int** nghBoidsLen, int L,
+        int relX, int relY, int gloalX, int globalY, int xDir, int yDir)
+{
+    for(int i = 1; i <= L 
+        && globalX+(i*xDir) >= 0 
+        && globalX+(i*xDir) < blockDim.x * gridDim.x
+        && globalY+(i*yDir) >= 0
+        && globalY+(i*yDir) < blockDim.y * gridDim.y
+        ; i++)
+    {
+        // Go along the x-axis first
+        fillSharedMemLine(context, nghBoids, nghBoidsLen, L, relX+(i*xDir), relY, globalX+(i*xDir), globalY, 0, yDir);
+    }
+}
+
+// One step of naive: calculate the acceleration of each boid. DOESN'T apply it yet
+__global__ void areaCalcAcc(BoidsContext* context)
+{
+    // Unpack the context
+    Boids* boids = context->boids;
+    int* startIdx = context->startIdx;
+    int* endIdx = context->endIdx;
+
     int currX = blockIdx.x * blockDim.x + threadIdx.x;
     int currY = blockIdx.y * blockDim.y + threadIdx.y;
     int aId = areaId(currX, currY);
@@ -253,19 +310,53 @@ __global__ void areaCalcAcc(Boid* boids, int* startIdx, int* endIdx)
     }
 
     // Find the neighborhood around it within it's visual range
-    // L = neighborhood radius(neighborhood is a square block)
-    int L = visualRange / (spaceSize / (grid1Dim * block1Dim)) + 1;
-    int neighArea = (2*L+1) * (2*L+1);
-    int neighIds[neighArea];
-    int count = 0;
-    for(int y = currY - L; y <= currY + L; y++)
+    // NOTE: as in the whole block's neighborhood. We use shared memory here for efficiency
+    int L = visualRange / (spaceSize / (grid1Dim * block1Dim)) + 1; // the visual range in term of blocks
+    __shared__ Boid* nghBoids[2*L + blockDim.x][2*L + blockDim.y];
+    __shared__ int nghBoidsLen[2*L + blockDim.x][2*L + blockDim.y];
+    // Rules for which neighboring grids to fill out for each thread in the block
+    //  1: each thread fills out it's own block
+    //  2: threads on the perimeter of the block fills out the lines of neighbors expending beyond it
+    //  3: threads on the corners fills in the square of neighbors in the corners
+    int currRelX = L + threadIdx.x;
+    int currRelY = L + threadIdx.y;
+    // Rule 1
+    fillSharedMem(context, nghBoids, nghBoidsLen, nghId, currRelX, currRelY, currX, currY);
+    // Rule 2
+    if(threadIdx.x == 0)
     {
-        for(int x = currX - L; x <= currX + L; x++)
-        {
-            neighIds[count] = areaId(x, y);
-            count++;
-        }
+        fillSharedMemLine(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, -1, 0);
+    } 
+    if(threadIdx.x == blockDim.x-1)
+    {
+        fillSharedMemLine(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, 1, 0);
     }
+    if(threadIdx.y == 0)
+    {
+        fillSharedMemLine(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, 0, -1);
+    }
+    if(threadIdx.y == blockDim.y-1)
+    {
+        fillSharedMemLine(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, 0, 1);
+    }
+    // Rule 3
+    if(threadIdx.x == 0 && threadIdx.y == 0)
+    {
+        fillSharedMemSquare(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, -1, -1);
+    }
+    if(threadIdx.x == 0 && threadIdx.y == blockDim.y-1)
+    {
+        fillSharedMemSquare(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, -1, 1);
+    }
+    if(threadIdx.x == blockDim.x-1 && threadIdx.y == 0)
+    {
+        fillSharedMemSquare(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, 1, -1);
+    }
+    if(threadIdx.x == blockDi.x-1 && threadIdx.y == blockDim.y-1)
+    {
+        fillSharedMemSquare(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, 1, 1);
+    }
+    __syncthreads();
 
     // Iterate through all boids in this area and do all calculations
     for(int i = startIdx[aId]; i < endIdx[aId]; i++)
@@ -274,7 +365,6 @@ __global__ void areaCalcAcc(Boid* boids, int* startIdx, int* endIdx)
         // Itearte through whole neighborhood to calculate forces
         for(int nIdx = 0; nIdx < neighArea; nIdx++)
         {
-            // TODO: need to fix currIdx thing!
             int nEndIdx = endIdx[neighIds[nIdx]];
             int nBoids = nEndIdx - nStartIdx;
             if(nStartIdx == INT_MAX && nEndIdx == -1)
@@ -343,10 +433,19 @@ int main(int argc, char **argv)
     thrust::device_vector<Boid> gpu_boids = boids;
     thrust::device_vector<int> gpu_startIdx(grid1Dim * block1Dim * grid1Dim * block1Dim, INT_MAX);
     thrust::device_vector<int> gpu_endIdx(grid1Dim * block1Dim * grid1Dim * block1Dim, -1);
+    BoidsContext* gpu_context;
+    cudaMalloc(&gpu_context, sizeof(BoidsContext));
 
     Boid* gpu_boidsPtr = thrust::raw_pointer_cast(gpu_boids.data());
     int* gpu_startIdxPtr = thrust::raw_pointer_cast(gpu_startIdx.data());
     int* gpu_endIdxPtr = thrust::raw_pointer_cast(gpu_endIdx.data());
+
+    // Construct the context and copy it over to GPU
+    BoidsContext context;
+    context.boids = gpu_boidsPtr;
+    context.startIdx = gpu_startIdxPtr;
+    context.endIdx = gpu_endIdxPtr;
+    cudaMemcpy(gpu_context, &context, sizeof(BoidsContext), cudaMemcpyHostToDevice);
     
     // start time
     struct timespec start, stop; 
@@ -371,9 +470,9 @@ int main(int argc, char **argv)
         thrust::fill(gpu_endIdx.begin(), gpu_endIdx.end(), -1);
         parallelFindStartEnd <<< dimGridLinear, dimBlockLinear >>> (gpu_boidsPtr, gpu_startIdxPtr, gpu_endIdxPtr);
 
-        areaCalcAcc <<< dimGrid, dimBlock >>> (gpu_boidsPtr, gpu_startIdxPtr, gpu_endIdxPtr);
+        areaCalcAcc <<< dimGrid, dimBlock >>> (gpu_context);
         checkCudaError("After areaCalcAcc");
-        areaUpdateBoids <<< dimGrid, dimBlock >>> (gpu_boidsPtr, gpu_startIdxPtr, gpu_endIdxPtr);
+        areaUpdateBoids <<< dimGrid, dimBlock >>> (gpu_context);
         checkCudaError("After naiveUpdateBoids");
         boids = gpu_boids;
         checkCudaError("After copying gpu_boids back to host");
@@ -389,5 +488,9 @@ int main(int argc, char **argv)
     ofile.close();
     time = (stop.tv_sec - start.tv_sec)+ (double)(stop.tv_nsec - start.tv_nsec)/1e9;
     printf("time is %.9f\n", time*1e9);
+
+    // Free cuda memory used
+    cudaFree(gpu_context);
+
     return 0;
 }
