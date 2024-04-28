@@ -3,6 +3,9 @@
 #include <cublas.h>
 #include <time.h>
 #include <fstream>
+#include <iostream>
+#include <cuda_runtime.h>
+
 #include <thrust/sort.h>
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
@@ -24,6 +27,9 @@
 // Blocks and grids are 2D now, these are parameters along one of the edges
 #define grid1Dim 20
 #define block1Dim 5
+
+// Visual range in units of blocks
+#define L visualRange / (spaceSize / (grid1Dim * block1Dim)) + 1
 
 void checkCudaError(std::string str)
 {
@@ -259,7 +265,7 @@ __device__ void fillSharedMem(BoidsContext* context, Boid*** nghBoids, int** ngh
 // NOTE: 
 //  xDir = direction of x in the line(-1 = left, 0 = no move, 1 = right)
 //  yDir = direction of y in the line(-1 = up, 0 = no move, 1 = down)
-__device__ void fillSharedMemLine(BoidsContext* context, Boid*** nghBoids, int** nghBoidsLen, int L,
+__device__ void fillSharedMemLine(BoidsContext* context, Boid*** nghBoids, int** nghBoidsLen,
         int relX, int relY, int globalX, int globalY, int xDir, int yDir)
 {
     for(int i = 1; i <= L 
@@ -277,7 +283,7 @@ __device__ void fillSharedMemLine(BoidsContext* context, Boid*** nghBoids, int**
 // NOTE: 
 //  xDir = direction of x in the line(-1 = left, 0 = no move, 1 = right)
 //  yDir = direction of y in the line(-1 = up, 0 = no move, 1 = down)
-__device__ void fillSharedMemSquare(BoidsContext* context, Boid*** nghBoids, int** nghBoidsLen, int L,
+__device__ void fillSharedMemSquare(BoidsContext* context, Boid*** nghBoids, int** nghBoidsLen,
         int relX, int relY, int globalX, int globalY, int xDir, int yDir)
 {
     for(int i = 1; i <= L 
@@ -312,7 +318,7 @@ __global__ void areaCalcAcc(BoidsContext* context)
 
     // Find the neighborhood around it within it's visual range
     // NOTE: as in the whole block's neighborhood. We use shared memory here for efficiency
-    int L = visualRange / (spaceSize / (grid1Dim * block1Dim)) + 1; // the visual range in term of blocks
+    // NOTE: L is the visual range in terms of blocks
     __shared__ Boid* nghBoids[2*L + blockDim.x][2*L + blockDim.y];
     __shared__ int nghBoidsLen[2*L + blockDim.x][2*L + blockDim.y];
     // Rules for which neighboring grids to fill out for each thread in the block
@@ -322,40 +328,40 @@ __global__ void areaCalcAcc(BoidsContext* context)
     int currRelX = L + threadIdx.x; //Relative position of XY on the neighbor shared memory
     int currRelY = L + threadIdx.y;
     // Rule 1
-    fillSharedMem(context, nghBoids, nghBoidsLen, nghId, currRelX, currRelY, currX, currY);
+    fillSharedMem(context, nghBoids, nghBoidsLen, currRelX, currRelY, currX, currY);
     // Rule 2
     if(threadIdx.x == 0)
     {
-        fillSharedMemLine(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, -1, 0);
+        fillSharedMemLine(context, nghBoids, nghBoidsLen, currRelX, currRelY, currX, currY, -1, 0);
     } 
     if(threadIdx.x == blockDim.x-1)
     {
-        fillSharedMemLine(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, 1, 0);
+        fillSharedMemLine(context, nghBoids, nghBoidsLen, currRelX, currRelY, currX, currY, 1, 0);
     }
     if(threadIdx.y == 0)
     {
-        fillSharedMemLine(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, 0, -1);
+        fillSharedMemLine(context, nghBoids, nghBoidsLen, currRelX, currRelY, currX, currY, 0, -1);
     }
     if(threadIdx.y == blockDim.y-1)
     {
-        fillSharedMemLine(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, 0, 1);
+        fillSharedMemLine(context, nghBoids, nghBoidsLen, currRelX, currRelY, currX, currY, 0, 1);
     }
     // Rule 3
     if(threadIdx.x == 0 && threadIdx.y == 0)
     {
-        fillSharedMemSquare(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, -1, -1);
+        fillSharedMemSquare(context, nghBoids, nghBoidsLen, currRelX, currRelY, currX, currY, -1, -1);
     }
     if(threadIdx.x == 0 && threadIdx.y == blockDim.y-1)
     {
-        fillSharedMemSquare(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, -1, 1);
+        fillSharedMemSquare(context, nghBoids, nghBoidsLen, currRelX, currRelY, currX, currY, -1, 1);
     }
     if(threadIdx.x == blockDim.x-1 && threadIdx.y == 0)
     {
-        fillSharedMemSquare(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, 1, -1);
+        fillSharedMemSquare(context, nghBoids, nghBoidsLen, currRelX, currRelY, currX, currY, 1, -1);
     }
-    if(threadIdx.x == blockDi.x-1 && threadIdx.y == blockDim.y-1)
+    if(threadIdx.x == blockDim.x-1 && threadIdx.y == blockDim.y-1)
     {
-        fillSharedMemSquare(context, nghBoids, nghBoidsLen, L, currRelX, currRelY, currX, currY, 1, 1);
+        fillSharedMemSquare(context, nghBoids, nghBoidsLen, currRelX, currRelY, currX, currY, 1, 1);
     }
     __syncthreads();
 
@@ -382,13 +388,18 @@ __global__ void areaCalcAcc(BoidsContext* context)
                 applyAlignment(boidCpy, currIdx, nStartPtr, nghNumBoids);
             }
         }
-        boids[currIdx] = boidCpy;
+        boids[i] = boidCpy;
     }
 }
 
 // Updates all the boids in this area
-__global__ void areaUpdateBoids(Boid* boids, int* startIdx, int* endIdx)
+__global__ void areaUpdateBoids(BoidsContext* context)
 {
+    // Unpack the context
+    Boid* boids = context->boids;
+    int* startIdx = context->startIdx;
+    int* endIdx = context->endIdx;
+
     int currX = blockIdx.x * blockDim.x + threadIdx.x;
     int currY = blockIdx.y * blockDim.y + threadIdx.y;
     int aId = areaId(currX, currY);
@@ -397,9 +408,9 @@ __global__ void areaUpdateBoids(Boid* boids, int* startIdx, int* endIdx)
     int ending = endIdx[aId];
     for(int i = starting; i < ending; i++)
     {
-        Boid boidCpy = boids[currIdx];
+        Boid boidCpy = boids[i];
         updateBoid(boidCpy);
-        boids[currIdx] = boidCpy;
+        boids[i] = boidCpy;
     }
 }
 
@@ -416,6 +427,18 @@ struct CompareByAreaId {
 
 int main(int argc, char **argv)
 {
+    // TESTING CODE TO SEE SHARED MEMORY SIZE
+    int device;
+    cudaDeviceProp properties;
+
+    // Get device number
+    cudaGetDevice(&device);
+
+    // Get device properties
+    cudaGetDeviceProperties(&properties, device);
+
+    std::cout << "Total shared memory per block: " << properties.sharedMemPerBlock << " bytes" << std::endl;
+
     // Allocate memory for host
     thrust::host_vector<Boid> boids;
 	
@@ -472,7 +495,7 @@ int main(int argc, char **argv)
         // Find start and end indices in "boids" for every area 
         thrust::fill(gpu_startIdx.begin(), gpu_startIdx.end(), INT_MAX);
         thrust::fill(gpu_endIdx.begin(), gpu_endIdx.end(), -1);
-        parallelFindStartEnd <<< dimGridLinear, dimBlockLinear >>> (gpu_boidsPtr, gpu_startIdxPtr, gpu_endIdxPtr);
+        parallelFindStartEnd <<< dimGridLinear, dimBlockLinear >>> (gpu_context);
 
         areaCalcAcc <<< dimGrid, dimBlock >>> (gpu_context);
         checkCudaError("After areaCalcAcc");
