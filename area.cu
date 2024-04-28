@@ -252,7 +252,8 @@ __device__ void fillSharedMem(BoidsContext* context, Boids*** nghBoids, int** ng
     int nghId = areaId(nGlobalX, nGlobalY);
     nghBoidsLen[nRelX][nRelY] = (context->startIdx[nghId] == INT_MAX && context->endIdx[nghId] == -1) ? 
         0 : context->endIdx[nghId] - context->startIdx[nghId];
-    nghBoids[nRelX][nRelY] = context->boids + context->startIdx[nghId];
+    nghBoids[nRelX][nRelY] = (context->startIdx[nghId] == INT_MAX && context->endIdx[nghId] == -1) ? 
+        nullptr: context->boids + context->startIdx[nghId];
 }
 
 // Helper function for Rule 2 in fulling shared memory
@@ -300,6 +301,7 @@ __global__ void areaCalcAcc(BoidsContext* context)
     int* startIdx = context->startIdx;
     int* endIdx = context->endIdx;
 
+    // Global index of XY on the grid
     int currX = blockIdx.x * blockDim.x + threadIdx.x;
     int currY = blockIdx.y * blockDim.y + threadIdx.y;
     int aId = areaId(currX, currY);
@@ -318,7 +320,7 @@ __global__ void areaCalcAcc(BoidsContext* context)
     //  1: each thread fills out it's own block
     //  2: threads on the perimeter of the block fills out the lines of neighbors expending beyond it
     //  3: threads on the corners fills in the square of neighbors in the corners
-    int currRelX = L + threadIdx.x;
+    int currRelX = L + threadIdx.x; //Relative position of XY on the neighbor shared memory
     int currRelY = L + threadIdx.y;
     // Rule 1
     fillSharedMem(context, nghBoids, nghBoidsLen, nghId, currRelX, currRelY, currX, currY);
@@ -362,21 +364,24 @@ __global__ void areaCalcAcc(BoidsContext* context)
     for(int i = startIdx[aId]; i < endIdx[aId]; i++)
     {
         Boid boidCpy = boids[i];
-        // Itearte through whole neighborhood to calculate forces
-        for(int nIdx = 0; nIdx < neighArea; nIdx++)
+        // Find neighbor upperbounds in nghBoids
+        int lowerX = (currX - L < 0) ? currRelX - currX : currRelX - L; //inclusive
+        int lowerY = (currY - L < 0) ? currRelY - currY : currRelY - L;
+        int upperX = (currX + L >= gridDim.x * blockDim.x) ? currRelX + (gridDim.x*blockDim.x-1-currX): currRelX + L; //inclusive
+        int upperY = (currY + L >= gridDim.y * blockDim.y) ? currRelY + (gridDim.y*blockDim.y-1-currY): currRelY + L;
+
+        // Go through each neighboring grid in shared memory
+        for(int x = lowerX; x <= upperX; x++)
         {
-            int nEndIdx = endIdx[neighIds[nIdx]];
-            int nBoids = nEndIdx - nStartIdx;
-            if(nStartIdx == INT_MAX && nEndIdx == -1)
+            for(int y = lowerY; y <= upperY; y++)
             {
-                continue;
+                int currIdx = (currRelX == x && currRelY == y) ? i - startIdx[aId] : -1;
+                Boid* nStartPtr = nghBoids[x][y];
+                int nghNumBoids = nghBoidsLen[x][y];
+                applyCenterAttr(boidCpy, currIdx, nStartPtr, nghNumBoids);
+                applyAvoidOthers(boidCpy, currIdx, nStartPtr, nghNumBoids);
+                applyAlignment(boidCpy, currIdx, nStartPtr, nghNumBoids);
             }
-            // Need to tell the function the relative position of this boid if boid is in this segment
-            int currIdx = (i < nStartIdx || i >= nEndIdx) ? -1 : i-nStartIdx;
-            Boid* nStartPtr = boids + nStartIdx;
-            applyCenterAttr(boidCpy, currIdx, nStartPtr, nBoids);
-            applyAvoidOthers(boidCpy, currIdx, nStartPtr, nBoids);
-            applyAlignment(boidCpy, currIdx, nStartPtr, nBoids);
         }
         boids[currIdx] = boidCpy;
     }
