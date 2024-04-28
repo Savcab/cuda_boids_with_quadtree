@@ -5,9 +5,10 @@
 #include <fstream>
 #include <thrust/sort.h>
 #include <thrust/device_vector.h>
+#include <thrust/host_vector.h>
 #include <thrust/fill.h>
 
-#define INT_MAX 2147483647
+// #define INT_MAX 2147483647
 
 #define spaceSize 10000
 #define numBoids  128
@@ -58,10 +59,10 @@ struct BoidsContext
     Boid* boids;
     int* startIdx;
     int* endIdx;
-}
+};
 
 // Helper function to return which area this boid belongs to
-__device__ __host__ int areaId(Boid& boid)
+__device__ __host__ int areaId(const Boid& boid)
 {
     int numAreas1D = block1Dim * grid1Dim;
     int areaSide = spaceSize / numAreas1D;
@@ -278,13 +279,14 @@ __global__ void areaCalcAcc(Boid* boids, int* startIdx, int* endIdx)
         for(int nIdx = 0; nIdx < neighArea; nIdx++)
         {
             // TODO: need to fix currIdx thing!
-            int nStartIdx = startIdx[neighIds[nIdx]];
             int nEndIdx = endIdx[neighIds[nIdx]];
             int nBoids = nEndIdx - nStartIdx;
-            if(nStartIdx == INT_MAX && nEndIDx == -1)
+            if(nStartIdx == INT_MAX && nEndIdx == -1)
             {
                 continue;
             }
+            // Need to tell the function the relative position of this boid if boid is in this segment
+            int currIdx = (i < nStartIdx || i >= nEndIdx) ? -1 : i-nStartIdx;
             Boid* nStartPtr = boids + nStartIdx;
             applyCenterAttr(boidCpy, currIdx, nStartPtr, nBoids);
             applyAvoidOthers(boidCpy, currIdx, nStartPtr, nBoids);
@@ -294,13 +296,21 @@ __global__ void areaCalcAcc(Boid* boids, int* startIdx, int* endIdx)
     }
 }
 
-// TODO: need to implement
+// Updates all the boids in this area
 __global__ void areaUpdateBoids(Boid* boids, int* startIdx, int* endIdx)
 {
-    int currIdx = blockIdx.x * blockDim.x + threadIdx.x;
-    Boid boidCpy = boids[currIdx];
-    updateBoid(boidCpy);
-    boids[currIdx] = boidCpy;
+    int currX = blockIdx.x * blockDim.x + threadIdx.x;
+    int currY = blockIdx.y * blockDim.y + threadIdx.y;
+    int aId = areaId(currX, currY);
+
+    int starting = startIdx[aId];
+    int ending = endIdx[aId];
+    for(int i = starting; i < ending; i++)
+    {
+        Boid boidCpy = boids[currIdx];
+        updateBoid(boidCpy);
+        boids[currIdx] = boidCpy;
+    }
 }
 
 // Customer comparator functor for sorting boids according to which area they land in
@@ -312,7 +322,7 @@ struct CompareByAreaId {
         int aId2 = areaId(boid2);
         return aId1 <= aId2;
     }
-}
+};
 
 int main(int argc, char **argv)
 {
@@ -369,8 +379,8 @@ int main(int argc, char **argv)
         checkCudaError("After areaCalcAcc");
         areaUpdateBoids <<< dimGrid, dimBlock >>> (gpu_boidsPtr, gpu_startIdxPtr, gpu_endIdxPtr);
         checkCudaError("After naiveUpdateBoids");
-        cudaMemcpy(boids, gpu_boids, sizeof(Boid) * numBoids, cudaMemcpyDeviceToHost);
-        checkCudaError("After cudaMemcpy device to host");
+        boids = gpu_boids;
+        checkCudaError("After copying gpu_boids back to host");
         // Print out the all the boids
         ofile << "ITERATION " << i << "\n";
         for(int j = 0; j < numBoids; j++)
@@ -383,9 +393,5 @@ int main(int argc, char **argv)
     ofile.close();
     time = (stop.tv_sec - start.tv_sec)+ (double)(stop.tv_nsec - start.tv_nsec)/1e9;
     printf("time is %.9f\n", time*1e9);
-
-    // Free the memory
-    cudaFreeHost(boids);
-    cudaFree(gpu_boids);
     return 0;
 }
