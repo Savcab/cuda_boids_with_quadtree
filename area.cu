@@ -128,7 +128,6 @@ __device__ void applyAvoidOthers(Boid& boid, int currIdx, Boid* boids, int nBoid
         double distance = calcDist(boid, boids[i]);
         if(distance < minDistance && i != currIdx && distance != 0)
         {
-            double distance = calcDist(boid, boids[i]);
             double sinTheta = (boids[i].y - boid.y) / distance;
             double cosTheta = (boids[i].x - boid.x) / distance;
             Force force = {repulsionWeight * cosTheta * (distance - minDistance), 
@@ -246,7 +245,7 @@ __global__ void parallelFindStartEnd(BoidsContext* context)
 }
 
 // Helper function to assign data in the shared memory within blocks
-__device__ void fillSharedMem(BoidsContext* context, Boids*** nghBoids, int** nghBoidsLen,
+__device__ void fillSharedMem(BoidsContext* context, Boid*** nghBoids, int** nghBoidsLen,
         int nRelX, int nRelY, int nGlobalX, int nGlobalY)
 {
     int nghId = areaId(nGlobalX, nGlobalY);
@@ -260,7 +259,7 @@ __device__ void fillSharedMem(BoidsContext* context, Boids*** nghBoids, int** ng
 // NOTE: 
 //  xDir = direction of x in the line(-1 = left, 0 = no move, 1 = right)
 //  yDir = direction of y in the line(-1 = up, 0 = no move, 1 = down)
-__device__ void fillSharedMemLine(BoidsContext* context, Boids*** nghBoids, int** nghBoidsLen, int L,
+__device__ void fillSharedMemLine(BoidsContext* context, Boid*** nghBoids, int** nghBoidsLen, int L,
         int relX, int relY, int globalX, int globalY, int xDir, int yDir)
 {
     for(int i = 1; i <= L 
@@ -278,8 +277,8 @@ __device__ void fillSharedMemLine(BoidsContext* context, Boids*** nghBoids, int*
 // NOTE: 
 //  xDir = direction of x in the line(-1 = left, 0 = no move, 1 = right)
 //  yDir = direction of y in the line(-1 = up, 0 = no move, 1 = down)
-__device__ void fillSharedMemSquare(BoidsContext* context, Boids*** nghBoids, int** nghBoidsLen, int L,
-        int relX, int relY, int gloalX, int globalY, int xDir, int yDir)
+__device__ void fillSharedMemSquare(BoidsContext* context, Boid*** nghBoids, int** nghBoidsLen, int L,
+        int relX, int relY, int globalX, int globalY, int xDir, int yDir)
 {
     for(int i = 1; i <= L 
         && globalX+(i*xDir) >= 0 
@@ -297,7 +296,7 @@ __device__ void fillSharedMemSquare(BoidsContext* context, Boids*** nghBoids, in
 __global__ void areaCalcAcc(BoidsContext* context)
 {
     // Unpack the context
-    Boids* boids = context->boids;
+    Boid* boids = context->boids;
     int* startIdx = context->startIdx;
     int* endIdx = context->endIdx;
 
