@@ -7,6 +7,8 @@
 #include <cmath>
 #include <time.h>
 #include <fstream>
+#include <cstdlib> // for rand() and srand()
+#include <ctime>   // for srand()
 
 // Include CUDA headers
 #include <cublas.h>
@@ -14,17 +16,17 @@
 GLuint vbo;  // Handle for the VBO
 struct cudaGraphicsResource *cuda_vbo_resource; // CUDA Graphics Resource for mapping
 
-#define spaceSize 1028
-#define numBoids  512
+#define spaceSize 2500
+#define numBoids  5000
 #define blockSize 32
 #define numIters 5000
-#define visualRange 20
-#define boidMass 1.0f
-#define maxSpeed 0.5f
-#define minDistance 10.0f
-#define centerAttrWeight 0.005f
-#define repulsionWeight 0.05f
-#define alignmentWeight 0.75f
+#define visualRange 40
+#define boidMass 2.0f
+#define maxSpeed 25.0f
+#define minDistance 7.5f
+#define centerAttrWeight 0.0005f
+#define repulsionWeight 0.45f
+#define alignmentWeight 0.10f
 
 struct Boid
 {
@@ -292,36 +294,36 @@ struct SimulationState {
 
 };
 
+#define DEG_PER_RAD (180.0f / M_PI)
+
 void display() {
-    auto& instance = SimulationState::getInstance(); // Access the singleton instance
+    auto& instance = SimulationState::getInstance();
 
-    glClearColor(0.1f, 0.1f, 0.1f, 1.0f); // Clear with a dark gray to see the points
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glLoadIdentity();
 
-    glLoadIdentity(); // Reset the current modelview matrix
-
-    // For each boid, draw a triangle pointed in the direction of its velocity
     for (int i = 0; i < numBoids; ++i) {
-        // Compute the angle of rotation based on the velocity vector
-        float angle = atan2f(instance.host_boids[i].yVel, instance.host_boids[i].xVel);
+        float angle = atan2f(instance.host_boids[i].yVel, instance.host_boids[i].xVel) * DEG_PER_RAD;
+        float boidSize = 3.0f; // Size of the boid
 
-        glPushMatrix(); // Save the current transformation
-        glTranslatef(instance.host_boids[i].x, instance.host_boids[i].y, 0.0f); // Translate to the boid's position
-        glRotatef(angle * 180.0f / M_PI, 0.0f, 0.0f, 1.0f); // Rotate to align with the velocity vector
+        glPushMatrix();
+        glTranslatef(instance.host_boids[i].x, instance.host_boids[i].y, 0.0f);
+        glRotatef(angle - 90.0f, 0.0f, 0.0f, 1.0f); // Subtract 90 degrees because triangles point up
 
         glBegin(GL_TRIANGLES);
         glColor3f(1.0, 0.0, 0.0); // Red color for visibility
-        // Define the vertices of the triangle relative to the boid's position
-        glVertex2f(0.0f, 5.0f); // Point of the triangle
-        glVertex2f(-2.5f, -2.5f); // Base - Left Vertex
-        glVertex2f(2.5f, -2.5f); // Base - Right Vertex
+        glVertex2f(0.0f, boidSize * 2.0f); // Point of the triangle
+        glVertex2f(-boidSize, -boidSize); // Base - Left Vertex
+        glVertex2f(boidSize, -boidSize); // Base - Right Vertex
         glEnd();
 
-        glPopMatrix(); // Restore the transformation
+        glPopMatrix();
     }
 
     glutSwapBuffers();
 }
+
 
 void timer(int value) {
     auto& instance = SimulationState::getInstance();
@@ -350,13 +352,19 @@ int main(int argc, char **argv) {
     
 	
     // Initialize boids
-    int gap = spaceSize / numBoids;
+    srand(0);
+
     for(int i = 0; i < numBoids; i++)
     {
-        host_boids[i].x = i * gap;
-        host_boids[i].y = i * gap;
-        host_boids[i].xVel = rand() % 20 - 10;
-        host_boids[i].yVel = rand() % 20 - 10;
+        // Generate random coordinates within the space size
+        host_boids[i].x = rand() % spaceSize;
+        host_boids[i].y = rand() % spaceSize;
+        
+        // Generate random velocities (-10 to 10)
+        host_boids[i].xVel = rand() % 21 - 10;
+        host_boids[i].yVel = rand() % 21 - 10;
+        
+        // Initialize acceleration to 0
         host_boids[i].xAcc = 0;
         host_boids[i].yAcc = 0;
     }
