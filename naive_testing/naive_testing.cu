@@ -4,10 +4,7 @@
 #include <time.h>
 #include <fstream>
 
-int spaceSize;
-int numBoids;
-int blockSize;
-#define numIters 1000
+#define numIters 2500
 #define visualRange 40
 #define boidMass 2.0f
 #define maxSpeed 25.0f
@@ -137,7 +134,7 @@ __device__ void applyAlignment(Boid& boid, int currIdx, Boid* boids, int nBoids)
 // LIMITS SPEED
 // BOUNCES OFF WALLS
 // RESETS ACCELERATION
-__device__ void updateBoid(Boid& boid)
+__device__ void updateBoid(Boid& boid, int spaceSize)
 {
     // UPDATE POSITIONS
     boid.x += boid.xVel;
@@ -195,20 +192,15 @@ __global__ void naiveCalcAcc(Boid* boids, int nBoids)
     boids[currIdx] = boidCpy;
 }
 
-__global__ void naiveUpdateBoids(Boid* boids, int nBoids)
+__global__ void naiveUpdateBoids(Boid* boids, int nBoids, int spaceSize)
 {
     int currIdx = blockIdx.x * blockDim.x + threadIdx.x;
     Boid boidCpy = boids[currIdx];
-    updateBoid(boidCpy);
+    updateBoid(boidCpy, spaceSize);
     boids[currIdx] = boidCpy;
 }
 
-int main(int argc, char **argv)
-{
-    int numBoids = atoi(argv[1]);
-    int blockSize = atoi(argv[2]);
-    if (numBoids < 2000) spaceSize = 1000;
-    else spaceSize / 2;
+void simulation(int spaceSize, int numBoids, int blockSize){
     // Allocate memory for host
     Boid *boids;
     // Paged-locked memory doesn't get swapped back to disk
@@ -220,16 +212,16 @@ int main(int argc, char **argv)
     for(int i = 0; i < numBoids; i++)
     {
         // Generate random coordinates within the space size
-        host_boids[i].x = rand() % spaceSize;
-        host_boids[i].y = rand() % spaceSize;
+        boids[i].x = rand() % spaceSize;
+        boids[i].y = rand() % spaceSize;
         
         // Generate random velocities (-10 to 10)
-        host_boids[i].xVel = rand() % 21 - 10;
-        host_boids[i].yVel = rand() % 21 - 10;
+        boids[i].xVel = rand() % 21 - 10;
+        boids[i].yVel = rand() % 21 - 10;
         
         // Initialize acceleration to 0
-        host_boids[i].xAcc = 0;
-        host_boids[i].yAcc = 0;
+        boids[i].xAcc = 0;
+        boids[i].yAcc = 0;
     }
 
     // Allocate memory for device
@@ -239,8 +231,6 @@ int main(int argc, char **argv)
     // start time
     struct timespec start, stop; 
     double time;
-    std::ofstream ofile("output.txt");
-    std::ofstream oTestFile("test.txt");
 
     // Start calling the gpu
     // cudaEventRecord(startEvent, 0);
@@ -253,25 +243,39 @@ int main(int argc, char **argv)
     {
         naiveCalcAcc <<< dimGrid, dimBlock >>> (gpu_boids, numBoids);
         checkCudaError("After naiveCalcAcc");
-        naiveUpdateBoids <<< dimGrid, dimBlock >>> (gpu_boids, numBoids);
+        naiveUpdateBoids <<< dimGrid, dimBlock >>> (gpu_boids, numBoids, spaceSize);
         checkCudaError("After naiveUpdateBoids");
         cudaMemcpy(boids, gpu_boids, sizeof(Boid) * numBoids, cudaMemcpyDeviceToHost);
         checkCudaError("After cudaMemcpy device to host");
-        // Print out the all the boids
-        ofile << "ITERATION " << i << "\n";
-        for(int j = 0; j < numBoids; j++)
-        {
-            ofile << "Boid " << j << ": " << boids[j].x << ", " << boids[j].y << "\n";
-        }
-        oTestFile << boids[0].x << " " << boids[0].y << "\n";
     }
    if( clock_gettime( CLOCK_REALTIME, &stop) == -1 ) { perror( "clock gettime" );}	  
-    ofile.close();
     time = (stop.tv_sec - start.tv_sec)+ (double)(stop.tv_nsec - start.tv_nsec)/1e9;
-    printf("time is %.9f\n", time*1e9);
+    printf("%d, %d, %f.6\n", numBoids, blockSize, time);
 
     // Free the memory
     cudaFreeHost(boids);
     cudaFree(gpu_boids);
+}
+
+int main(int argc, char **argv)
+{
+    simulation(10000, 200000, 32);
+    simulation(10000, 100000, 128);
+    simulation(10000, 100000, 512);
+    simulation(10000, 100000, 32);
+    // for(int numBoids = 1000; numBoids <= 100000; numBoids*=10){
+    //     for(int i = 2; i <= 16; i*=2){
+    //         int blockSize = 32 * i;
+    //         int spaceSize;
+    //         if (numBoids < 2000) {
+    //             spaceSize = 1000;
+    //         }
+    //         else {
+    //             spaceSize= spaceSize / 2;
+    //         }
+    //         simulation(spaceSize, numBoids, blockSize);
+    //     }
+    // }
+
     return 0;
 }
