@@ -22,12 +22,8 @@
 #define alignmentWeight 0.05
 
 // Blocks and grids are 2D now, these are parameters along one of the edges
-#define grid1Dim 10
-#define block1Dim 10
-
-// Dimensions for finding the Start & End for boids in areaIds
-#define gridDimSE 10
-#define blockDimSE 10
+#define grid1Dim 20
+#define block1Dim 5
 
 void checkCudaError(std::string str)
 {
@@ -256,7 +252,7 @@ __global__ void areaCalcAcc(Boid* boids, int* startIdx, int* endIdx)
         return;
     }
 
-    // Find areas around it that we need to inlude in calculations
+    // Find the neighborhood around it within it's visual range
     // L = neighborhood radius(neighborhood is a square block)
     int L = visualRange / (spaceSize / (grid1Dim * block1Dim)) + 1;
     int neighArea = (2*L+1) * (2*L+1);
