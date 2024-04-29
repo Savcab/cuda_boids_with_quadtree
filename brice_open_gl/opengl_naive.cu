@@ -142,8 +142,8 @@ __device__ void applyAvoidOthers(Boid& boid, int currIdx, Boid* boids, int nBoid
             double distance = calcDist(boid, boids[i]);
             double sinTheta = (boids[i].y - boid.y) / distance;
             double cosTheta = (boids[i].x - boid.x) / distance;
-            Force force = {repulsionWeight * cosTheta * (distance - minDistance), 
-                            repulsionWeight * sinTheta * (distance - minDistance)};
+            Force force = {-1 * repulsionWeight * cosTheta / distance, 
+                            -1 * repulsionWeight * sinTheta / distance};
             applyForce(boid, force);
         }
     }
