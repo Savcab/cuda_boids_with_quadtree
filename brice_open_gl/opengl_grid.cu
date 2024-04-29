@@ -51,6 +51,7 @@ void checkCudaError(std::string str)
 
 struct Boid
 {
+    int id; // Unique identifier for the boid
     float x, y, xVel, yVel, xAcc, yAcc;
 };
 
@@ -449,9 +450,16 @@ __global__ void areaUpdateBoids(BoidsContext* context)
     {
         Boid boidCpy = boids[i];
         updateBoid(boidCpy);
-        // if (i == 0) printf("Boid %d: Pos(%.2f, %.2f) Vel(%.2f, %.2f)\n", i, boidCpy.x, boidCpy.y, boidCpy.xVel, boidCpy.yVel);
         boids[i] = boidCpy;
+        // int targetID = 2;
+        // if (boids[i].id == targetID) {
+        //     printf("Ker Boid %d: Pos(%.2f, %.2f) Vel(%.2f, %.2f)\n", targetID,
+        //            boids[i].x, boids[i].y,
+        //            boids[i].xVel, boids[i].yVel);
+        // }
     }
+
+    
 }
 
 // Customer comparator functor for sorting boids according to which area they land in
@@ -466,39 +474,83 @@ struct CompareByAreaId {
 };
 
 
-struct SimulationState {
-    dim3 dimBlock;
-    dim3 dimGrid;
-    dim3 dimBlockLinear;
-    dim3 dimGridLinear;
-    thrust::device_vector<Boid> gpu_boids;
-    thrust::host_vector<Boid> host_boids;
-    thrust::device_vector<int> gpu_startIdx;
-    thrust::device_vector<int> gpu_endIdx;
-    cudaGraphicsResource* cuda_vbo_resource = nullptr;
-    int* gpu_startIdxPtr; 
-    int* gpu_endIdxPtr;
-    BoidsContext* gpu_context;
-    
+class SimulationState {
+public:
     static SimulationState& getInstance() {
         static SimulationState instance;
         return instance;
     }
 
-    SimulationState() 
-        : dimBlock(0, 0, 0), // Zero initialization for dim3
-          dimGrid(0, 0, 0), // Zero initialization for dim3
-          dimBlockLinear(0, 0, 0), // Zero initialization for dim3
-          dimGridLinear(0, 0, 0), // Zero initialization for dim3
-          cuda_vbo_resource(nullptr), // Proper nullptr initialization
-          gpu_startIdxPtr(nullptr), // Pointer initialized to nullptr
-          gpu_endIdxPtr(nullptr), // Pointer initialized to nullptr
-          gpu_context(nullptr) // Pointer initialized to nullptr
-    {
+    // Prevent copy and move semantics
+    SimulationState(const SimulationState&) = delete;
+    SimulationState& operator=(const SimulationState&) = delete;
+    SimulationState(SimulationState&&) = delete;
+    SimulationState& operator=(SimulationState&&) = delete;
+
+    thrust::host_vector<Boid> boids;
+    thrust::device_vector<Boid> gpu_boids;
+    thrust::device_vector<int> gpu_startIdx;
+    thrust::device_vector<int> gpu_endIdx;
+    BoidsContext* gpu_context;
+
+    dim3 dimBlock;
+    dim3 dimGrid;
+    dim3 dimBlockLinear;
+    dim3 dimGridLinear;
+
+private:
+    // Private constructor
+    SimulationState() {
+        init();
     }
 
-    SimulationState(const SimulationState&) = delete;
-    void operator=(const SimulationState&) = delete; 
+    ~SimulationState() {
+        cleanup();
+    }
+
+    void init() {
+        srand(0);  // Seed for random number generation
+
+        // Boid initialization
+        boids = thrust::host_vector<Boid>(numBoids);
+        for (int i = 0; i < numBoids; ++i) {
+            Boid temp = {
+                i,
+                static_cast<float>(rand() % spaceSize), // Explicit cast to float
+                static_cast<float>(rand() % spaceSize), // Explicit cast to float
+                static_cast<float>(rand() % 20 - 10),   // Explicit cast to float
+                static_cast<float>(rand() % 20 - 10),   // Explicit cast to float
+                0.0f,  // Already float, no cast needed
+                0.0f   // Already float, no cast needed
+            };
+            boids.push_back(temp);
+        }
+        gpu_boids = thrust::device_vector<Boid>(boids);
+        gpu_startIdx = thrust::device_vector<int>(grid1Dim * block1Dim * grid1Dim * block1Dim, INT_MAX);
+        gpu_endIdx = thrust::device_vector<int>(grid1Dim * block1Dim * grid1Dim * block1Dim, -1);
+
+        // Context for CUDA kernels
+        cudaError_t err = cudaMalloc(&gpu_context, sizeof(BoidsContext));
+        if (err != cudaSuccess) {
+            fprintf(stderr, "Failed to allocate device memory for BoidsContext - %s\n", cudaGetErrorString(err));
+            return;
+        }
+        BoidsContext context = {thrust::raw_pointer_cast(gpu_boids.data()), thrust::raw_pointer_cast(gpu_startIdx.data()), thrust::raw_pointer_cast(gpu_endIdx.data())};
+        err = cudaMemcpy(gpu_context, &context, sizeof(BoidsContext), cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) {
+            fprintf(stderr, "Failed to copy BoidsContext to device - %s\n", cudaGetErrorString(err));
+            return;
+        }
+        dimBlock = dim3(block1Dim, block1Dim);
+        dimGrid = dim3(grid1Dim, grid1Dim);
+        dimBlockLinear = dim3(block1Dim * block1Dim);
+        dimGridLinear = dim3(grid1Dim * grid1Dim);
+    }
+
+    void cleanup() {
+        // Cleanup logic, e.g., free memory
+        cudaFree(gpu_context);
+    }
 };
 
 #define DEG_PER_RAD (180.0f / M_PI)
@@ -510,12 +562,13 @@ void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glLoadIdentity();
 
+    // Draw boids
     for (int i = 0; i < numBoids; ++i) {
-        float angle = atan2f(instance.host_boids[i].yVel, instance.host_boids[i].xVel) * DEG_PER_RAD;
+        float angle = atan2f(instance.boids[i].yVel, instance.boids[i].xVel) * DEG_PER_RAD;
         float boidSize = 3.0f;
 
         glPushMatrix();
-        glTranslatef(instance.host_boids[i].x, instance.host_boids[i].y, 0.0f);
+        glTranslatef(instance.boids[i].x, instance.boids[i].y, 0.0f);
         glRotatef(angle - 90.0f, 0.0f, 0.0f, 1.0f);
 
         glBegin(GL_TRIANGLES);
@@ -528,13 +581,58 @@ void display() {
         glPopMatrix();
     }
 
+    // Draw grid lines
+    int numLines = grid1Dim * block1Dim;
+    float spacing = spaceSize / static_cast<float>(numLines);
+    glColor3f(0.5f, 0.5f, 0.5f); // Gray color for grid lines
+
+    glBegin(GL_LINES);
+    // Vertical lines
+    for (int i = 0; i <= numLines; ++i) {
+        glVertex2f(i * spacing, 0.0f);
+        glVertex2f(i * spacing, spaceSize);
+    }
+    // Horizontal lines
+    for (int i = 0; i <= numLines; ++i) {
+        glVertex2f(0.0f, i * spacing);
+        glVertex2f(spaceSize, i * spacing);
+    }
+    glEnd();
+
     glutSwapBuffers();
+}
+
+
+__global__ void printBoidDetails(BoidsContext* context, int targetID) {
+    for (int i = 0; i < numBoids; i++) {
+        if (context->boids[i].id == targetID) {
+            printf("GPU Boid %d: Pos(%.2f, %.2f) Vel(%.2f, %.2f)\n", targetID,
+                   context->boids[i].x, context->boids[i].y,
+                   context->boids[i].xVel, context->boids[i].yVel);
+            break;
+        }
+    }
+}
+
+__global__ void printGpuBoids(Boid* boids, int targetID) {
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idx < numBoids) {
+        if (boids[idx].id == targetID) {
+            printf("GPU_boids Boid %d: Pos(%.2f, %.2f) Vel(%.2f, %.2f)\n",
+                   boids[idx].id, boids[idx].x, boids[idx].y, boids[idx].xVel, boids[idx].yVel);
+        }
+    }
+}
+__global__ void checkPointerConsistency(Boid* directPointer, BoidsContext* context) {
+    if (threadIdx.x == 0) {  // Use only one thread to print
+        printf("Direct vector pointer: %p\n", directPointer);
+        printf("Context vector pointer: %p\n", context->boids);
+    }
 }
 
 
 void timer(int value) {
     auto& instance = SimulationState::getInstance();
-    std::cout <<"frame ";
     thrust::sort(instance.gpu_boids.begin(), instance.gpu_boids.end(), CompareByAreaId());
     thrust::fill(instance.gpu_startIdx.begin(), instance.gpu_startIdx.end(), INT_MAX);
     thrust::fill(instance.gpu_endIdx.begin(), instance.gpu_endIdx.end(), -1);
@@ -545,69 +643,51 @@ void timer(int value) {
     checkCudaError("After areaCalcAcc");
     areaUpdateBoids <<< instance.dimGrid, instance.dimBlock >>> (instance.gpu_context);
     cudaDeviceSynchronize();
+
+    //printBoidDetails<<<1, 1>>>(instance.gpu_context, 2);
+    cudaDeviceSynchronize();
+    int targetID = 2;  // Example: Check for Boid with ID 2
+    //printGpuBoids<<<(numBoids + 255) / 256, 256>>>(thrust::raw_pointer_cast(instance.gpu_boids.data()), targetID);
+    cudaDeviceSynchronize();  // Synchronize to ensure the print statements complete
+    checkCudaError("After printing gpu_boids");
     checkCudaError("After naiveUpdateBoids");
-    thrust::copy(instance.gpu_boids.begin(), instance.gpu_boids.end(), instance.host_boids.begin());
+
+    thrust::copy(instance.gpu_boids.begin(), instance.gpu_boids.end(), instance.boids.begin());
+    cudaDeviceSynchronize();
+
+
     checkCudaError("After copying gpu_boids back to host");
+    // for (int i = 0; i < numBoids; i++) {
+    //     int targetID = 2;
+    //     if (instance.boids[i].id == targetID) { // targetID is the ID of the boid you want to track
+    //         std::cout << "Boid " << targetID << ": Pos(" << instance.boids[i].x << ", " << instance.boids[i].y << ") Vel(" << instance.boids[i].xVel << ", " << instance.boids[i].yVel << ")\n";
+    //         break;
+    //     }
+    // }
+
+    // Boid* directPointer = thrust::raw_pointer_cast(instance.gpu_boids.data());
+    // checkPointerConsistency<<<1, 1>>>(directPointer, instance.gpu_context);
+    // cudaDeviceSynchronize();
+    // cudaError_t error = cudaGetLastError();
+    // if (error != cudaSuccess) {
+    //     fprintf(stderr, "CUDA error during pointer consistency check: %s\n", cudaGetErrorString(error));
+    // }
 
     glutPostRedisplay();
     glutTimerFunc(16, timer, 0); // Call this timer function again after 16 milliseconds   
 }
 
+
 int main(int argc, char **argv)
 {
     initOpenGL(argc, argv);
     glutDisplayFunc(display);
-    int device;
-    cudaDeviceProp properties;
-    cudaGetDevice(&device);
-    cudaGetDeviceProperties(&properties, device);
-    thrust::host_vector<Boid> boids;
-	
-    for(int i = numBoids-1; i >= 0; i--)
-    {
-        Boid temp;
-        temp.x = rand() % spaceSize;
-        temp.y = rand() % spaceSize;
-        temp.xVel = rand() % 20 - 10;
-        temp.yVel = rand() % 20 - 10;
-        temp.xAcc = 0;
-        temp.yAcc = 0;
-        boids.push_back(temp);
-    }
-
-    thrust::device_vector<Boid> gpu_boids = boids;
-    thrust::device_vector<int> gpu_startIdx(grid1Dim * block1Dim * grid1Dim * block1Dim, INT_MAX);
-    thrust::device_vector<int> gpu_endIdx(grid1Dim * block1Dim * grid1Dim * block1Dim, -1);
-    BoidsContext* gpu_context;
-    cudaMalloc(&gpu_context, sizeof(BoidsContext));
-
-    Boid* gpu_boidsPtr = thrust::raw_pointer_cast(gpu_boids.data());
-    int* gpu_startIdxPtr = thrust::raw_pointer_cast(gpu_startIdx.data());
-    int* gpu_endIdxPtr = thrust::raw_pointer_cast(gpu_endIdx.data());
-
-    BoidsContext context;
-    context.boids = gpu_boidsPtr;
-    context.startIdx = gpu_startIdxPtr;
-    context.endIdx = gpu_endIdxPtr;
-    cudaMemcpy(gpu_context, &context, sizeof(BoidsContext), cudaMemcpyHostToDevice);
+    
 
     auto& state = SimulationState::getInstance();
-    state.host_boids = boids;
-    state.dimBlock = dim3(block1Dim, block1Dim);
-    state.dimGrid = dim3(grid1Dim, grid1Dim);
-    state.dimBlockLinear = dim3(block1Dim * block1Dim);
-    state.dimGridLinear = dim3(grid1Dim * grid1Dim);
-    state.gpu_boids = gpu_boids;
-    state.cuda_vbo_resource = cuda_vbo_resource;
-    state.gpu_endIdx = gpu_endIdx;
-    state.gpu_startIdx = gpu_startIdx;
-    state.gpu_context = gpu_context;
 
     glutTimerFunc(0, timer, 0);
     glutMainLoop();
-
-    cudaFree(gpu_context);
-    cudaGraphicsUnregisterResource(cuda_vbo_resource);
-    glDeleteBuffers(1, &vbo);
+    
     return 0;
 }
