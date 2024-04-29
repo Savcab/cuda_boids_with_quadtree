@@ -6,10 +6,11 @@
 #SBATCH --time=1:00:00
 #SBATCH --partition=gpu
 #SBATCH --output=gpujob_%A_%a.out
-#SBATCH --gres=gpu:v100:1
+#SBATCH --gres=gpu:a100:1
 
 module purge
 module load nvidia-hpc-sdk
+module load cuda/11.3.0
 module load gcc/8.3.0
 
 ./naive

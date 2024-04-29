@@ -179,13 +179,10 @@ __device__ void updateBoid(Boid& boid, int spaceSize)
     boid.yAcc = 0;
 }
 
-// One step of naive: calculate the acceleration of each boid. DOESN'T apply it yet
 __global__ void naiveCalcAcc(Boid* boids, int nBoids)
 {
     int currIdx = blockIdx.x * blockDim.x + threadIdx.x;
     Boid boidCpy = boids[currIdx];
-    // Center attarction force
-    // NOTE: could probably optimize by making memory accesses closer to each other
     applyCenterAttr(boidCpy, currIdx, boids, nBoids);
     applyAvoidOthers(boidCpy, currIdx, boids, nBoids);
     applyAlignment(boidCpy, currIdx, boids, nBoids);
@@ -201,42 +198,28 @@ __global__ void naiveUpdateBoids(Boid* boids, int nBoids, int spaceSize)
 }
 
 void simulation(int spaceSize, int numBoids, int blockSize){
-    // Allocate memory for host
     Boid *boids;
-    // Paged-locked memory doesn't get swapped back to disk
     cudaMallocHost((void**)&boids, sizeof(Boid) * numBoids);
-	
-    // Initialize boids
     srand(0);
-
     for(int i = 0; i < numBoids; i++)
     {
-        // Generate random coordinates within the space size
         boids[i].x = rand() % spaceSize;
         boids[i].y = rand() % spaceSize;
-        
-        // Generate random velocities (-10 to 10)
         boids[i].xVel = rand() % 21 - 10;
         boids[i].yVel = rand() % 21 - 10;
-        
-        // Initialize acceleration to 0
         boids[i].xAcc = 0;
         boids[i].yAcc = 0;
     }
 
-    // Allocate memory for device
     Boid* gpu_boids;
     cudaMalloc(&gpu_boids, sizeof(Boid) * numBoids);
     
-    // start time
     struct timespec start, stop; 
     double time;
 
-    // Start calling the gpu
-    // cudaEventRecord(startEvent, 0);
     dim3 dimBlock(blockSize);
     dim3 dimGrid(numBoids/blockSize);
-    // Run all the timesteps
+
     if( clock_gettime( CLOCK_REALTIME, &start) == -1 ) { perror( "clock gettime" );}
     cudaMemcpy(gpu_boids, boids, sizeof(Boid) * numBoids, cudaMemcpyHostToDevice);
     for(int i = 0; i < numIters; i++)
@@ -250,21 +233,18 @@ void simulation(int spaceSize, int numBoids, int blockSize){
     }
    if( clock_gettime( CLOCK_REALTIME, &stop) == -1 ) { perror( "clock gettime" );}	  
     time = (stop.tv_sec - start.tv_sec)+ (double)(stop.tv_nsec - start.tv_nsec)/1e9;
-    printf("%d, %d, %f.6\n", numBoids, blockSize, time);
+    printf("%d, %d, %f\n", numBoids, blockSize, time);
 
-    // Free the memory
+
     cudaFreeHost(boids);
     cudaFree(gpu_boids);
 }
 
 int main(int argc, char **argv)
 {
-    simulation(10000, 200000, 32);
-    simulation(10000, 100000, 128);
-    simulation(10000, 100000, 512);
-    simulation(10000, 100000, 32);
-    // for(int numBoids = 1000; numBoids <= 100000; numBoids*=10){
-    //     for(int i = 2; i <= 16; i*=2){
+    simulation(1000, 1000, 32);
+    // for(int numBoids = 1000; numBoids <= 10000; numBoids*=10){
+    //     for(int i = 1; i <= 16; i*=2){
     //         int blockSize = 32 * i;
     //         int spaceSize;
     //         if (numBoids < 2000) {
@@ -276,6 +256,7 @@ int main(int argc, char **argv)
     //         simulation(spaceSize, numBoids, blockSize);
     //     }
     // }
+    // simulation(35000, 100000, 32);
 
     return 0;
 }
