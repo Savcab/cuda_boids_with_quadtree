@@ -23,19 +23,19 @@ struct cudaGraphicsResource *cuda_vbo_resource; // CUDA Graphics Resource for ma
 // #define INT_MAX 2147483647
 
 #define spaceSize 1000
-#define numBoids  256
+#define numBoids  8
 #define numIters 5000
 #define visualRange 40
 #define boidMass 2.0f
-#define maxSpeed 25.0f
-#define minDistance 7.5f
-#define centerAttrWeight 0.0005f
-#define repulsionWeight 0.45f
+#define maxSpeed 50.0f
+#define minDistance 10.0f
+#define centerAttrWeight 0.30f
+#define repulsionWeight 1.0f
 #define alignmentWeight 0.10f
 
 // Blocks and grids are 2D now, these are parameters along one of the edges
-#define grid1Dim 10
-#define block1Dim 5
+#define grid1Dim 2
+#define block1Dim 2
 
 // For ease of programming and compiling
 #define L (visualRange / (spaceSize / (grid1Dim * block1Dim)) + 1) // visual range in terms of areas
@@ -530,17 +530,11 @@ private:
         gpu_endIdx = thrust::device_vector<int>(grid1Dim * block1Dim * grid1Dim * block1Dim, -1);
 
         // Context for CUDA kernels
-        cudaError_t err = cudaMalloc(&gpu_context, sizeof(BoidsContext));
-        if (err != cudaSuccess) {
-            fprintf(stderr, "Failed to allocate device memory for BoidsContext - %s\n", cudaGetErrorString(err));
-            return;
-        }
+        cudaMalloc(&gpu_context, sizeof(BoidsContext));
+        checkCudaError("Failed to allocate device memory for BoidsContext");
         BoidsContext context = {thrust::raw_pointer_cast(gpu_boids.data()), thrust::raw_pointer_cast(gpu_startIdx.data()), thrust::raw_pointer_cast(gpu_endIdx.data())};
-        err = cudaMemcpy(gpu_context, &context, sizeof(BoidsContext), cudaMemcpyHostToDevice);
-        if (err != cudaSuccess) {
-            fprintf(stderr, "Failed to copy BoidsContext to device - %s\n", cudaGetErrorString(err));
-            return;
-        }
+        cudaMemcpy(gpu_context, &context, sizeof(BoidsContext), cudaMemcpyHostToDevice);
+        checkCudaError("Failed to copy BoidsCOntext to device");
         dimBlock = dim3(block1Dim, block1Dim);
         dimGrid = dim3(grid1Dim, grid1Dim);
         dimBlockLinear = dim3(block1Dim * block1Dim);
