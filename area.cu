@@ -28,8 +28,9 @@
 #define grid1Dim 20
 #define block1Dim 5
 
-// Visual range in units of blocks
-#define L visualRange / (spaceSize / (grid1Dim * block1Dim)) + 1
+// For ease of programming and compiling
+#define L (visualRange / (spaceSize / (grid1Dim * block1Dim)) + 1) // visual range in terms of areas
+#define nghSide (2*L + block1Dim) // side length of neighborhood shared memory block
 
 void checkCudaError(std::string str)
 {
@@ -294,11 +295,11 @@ __device__ void fillSharedMemSquare(BoidsContext* context, Boid*** nghBoids, int
         ; i++)
     {
         // Go along the x-axis first
-        fillSharedMemLine(context, nghBoids, nghBoidsLen, L, relX+(i*xDir), relY, globalX+(i*xDir), globalY, 0, yDir);
+        fillSharedMemLine(context, nghBoids, nghBoidsLen, relX+(i*xDir), relY, globalX+(i*xDir), globalY, 0, yDir);
     }
 }
 
-// One step of naive: calculate the acceleration of each boid. DOESN'T apply it yet
+// One step of area: calculate the acceleration of each boid. DOESN'T apply it yet
 __global__ void areaCalcAcc(BoidsContext* context)
 {
     // Unpack the context
@@ -319,8 +320,8 @@ __global__ void areaCalcAcc(BoidsContext* context)
     // Find the neighborhood around it within it's visual range
     // NOTE: as in the whole block's neighborhood. We use shared memory here for efficiency
     // NOTE: L is the visual range in terms of blocks
-    __shared__ Boid* nghBoids[2*L + blockDim.x][2*L + blockDim.y];
-    __shared__ int nghBoidsLen[2*L + blockDim.x][2*L + blockDim.y];
+    __shared__ Boid* nghBoids[nghSide][nghSide];
+    __shared__ int nghBoidsLen[nghSide][nghSide];
     // Rules for which neighboring grids to fill out for each thread in the block
     //  1: each thread fills out it's own block
     //  2: threads on the perimeter of the block fills out the lines of neighbors expending beyond it
