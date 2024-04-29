@@ -6,7 +6,6 @@
 
 #define spaceSize 10000
 #define numBoids  128//has to be multiple of blockSize
-#define blockSize 32
 #define numIters 5000
 #define visualRange 10000
 #define boidMass 1
@@ -15,6 +14,9 @@
 #define centerAttrWeight 0.05
 #define repulsionWeight 0.5
 #define alignmentWeight 0.05
+
+#define dimBlock 32
+#define dimGrid (numBoids / dimBlock)
 
 void checkCudaError(std::string str)
 {
@@ -96,7 +98,6 @@ __device__ void applyAvoidOthers(Boid& boid, int currIdx, Boid* boids, int nBoid
         double distance = calcDist(boid, boids[i]);
         if(distance < minDistance && i != currIdx && distance != 0)
         {
-            double distance = calcDist(boid, boids[i]);
             double sinTheta = (boids[i].y - boid.y) / distance;
             double cosTheta = (boids[i].x - boid.x) / distance;
             Force force = {repulsionWeight * cosTheta * (distance - minDistance), 
@@ -234,8 +235,8 @@ int main(int argc, char **argv)
 
     // Start calling the gpu
     // cudaEventRecord(startEvent, 0);
-    dim3 dimBlock(blockSize);
-    dim3 dimGrid(numBoids/blockSize);
+    dim3 dimBlock(dimBlock);
+    dim3 dimGrid(dimGrid);
     // Run all the timesteps
     if( clock_gettime( CLOCK_REALTIME, &start) == -1 ) { perror( "clock gettime" );}
     cudaMemcpy(gpu_boids, boids, sizeof(Boid) * numBoids, cudaMemcpyHostToDevice);
