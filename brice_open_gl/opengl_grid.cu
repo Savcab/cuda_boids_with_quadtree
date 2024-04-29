@@ -556,6 +556,7 @@ void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glLoadIdentity();
 
+    printBoidDetails<<<1, 1>>>(instance.gpu_context, 2);
     // Draw boids
     for (int i = 0; i < numBoids; ++i) {
         float angle = atan2f(instance.boids[i].yVel, instance.boids[i].xVel) * DEG_PER_RAD;
