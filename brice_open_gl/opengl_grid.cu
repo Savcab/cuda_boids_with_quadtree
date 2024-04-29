@@ -23,7 +23,7 @@ struct cudaGraphicsResource *cuda_vbo_resource; // CUDA Graphics Resource for ma
 // #define INT_MAX 2147483647
 
 #define spaceSize 1000
-#define numBoids  8
+#define numBoids  128
 #define numIters 5000
 #define visualRange 40
 #define boidMass 2.0f
