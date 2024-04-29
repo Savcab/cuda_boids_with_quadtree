@@ -626,6 +626,14 @@ __global__ void checkPointerConsistency(Boid* directPointer, BoidsContext* conte
 }
 
 
+void printBoids(Boid* boids)
+{
+    for(int i = 0; i < numBoids; i++)
+    {
+        std::cout << "area ID: " << areaId(boids[i]) << "\n";
+    }
+}
+
 void timer(int value) {
     auto& instance = SimulationState::getInstance();
     thrust::sort(instance.gpu_boids.begin(), instance.gpu_boids.end(), CompareByAreaId());
@@ -640,15 +648,18 @@ void timer(int value) {
     cudaDeviceSynchronize();
 
     //printBoidDetails<<<1, 1>>>(instance.gpu_context, 2);
-    cudaDeviceSynchronize();
+    // cudaDeviceSynchronize();
     int targetID = 2;  // Example: Check for Boid with ID 2
     //printGpuBoids<<<(numBoids + 255) / 256, 256>>>(thrust::raw_pointer_cast(instance.gpu_boids.data()), targetID);
-    cudaDeviceSynchronize();  // Synchronize to ensure the print statements complete
+    // cudaDeviceSynchronize();  // Synchronize to ensure the print statements complete
     checkCudaError("After printing gpu_boids");
     checkCudaError("After naiveUpdateBoids");
 
     thrust::copy(instance.gpu_boids.begin(), instance.gpu_boids.end(), instance.boids.begin());
     cudaDeviceSynchronize();
+
+    // DEBUG
+    printBoids(instance.boids);
 
 
     checkCudaError("After copying gpu_boids back to host");
