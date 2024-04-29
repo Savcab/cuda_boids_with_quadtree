@@ -34,8 +34,8 @@ struct cudaGraphicsResource *cuda_vbo_resource; // CUDA Graphics Resource for ma
 #define alignmentWeight 0.10f
 
 // Blocks and grids are 2D now, these are parameters along one of the edges
-#define grid1Dim 2
-#define block1Dim 2
+#define grid1Dim 10
+#define block1Dim 5
 
 // For ease of programming and compiling
 #define L (visualRange / (spaceSize / (grid1Dim * block1Dim)) + 1) // visual range in terms of areas
