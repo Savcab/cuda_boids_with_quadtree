@@ -503,14 +503,6 @@ int main(int argc, char **argv)
         cudaDeviceSynchronize();
         checkCudaError("After areaCalcAcc");
 
-        // DEBUG - calculate acceleration - 
-        std::cout << "DEBUGGING CALC ACCECRATION\n";
-        thrust::copy(gpu_boids.begin(), gpu_boids.end(), boids.begin());
-        for(int j = 0; j < numBoids; j++)
-        {
-            std::cout << "Boid " << j << ": " << boids[j].xAcc << ", " << boids[j].yAcc << "\n";
-        }
-
         areaUpdateBoids <<< dimGrid, dimBlock >>> (gpu_context);
         cudaDeviceSynchronize();
         checkCudaError("After naiveUpdateBoids");
