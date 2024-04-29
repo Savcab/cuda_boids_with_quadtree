@@ -22,10 +22,10 @@ struct cudaGraphicsResource *cuda_vbo_resource; // CUDA Graphics Resource for ma
 #define numIters 5000
 #define visualRange 40
 #define boidMass 2.0f
-#define maxSpeed 25.0f
-#define minDistance 7.5f
-#define centerAttrWeight 0.0005f
-#define repulsionWeight 0.45f
+#define maxSpeed 50.0f
+#define minDistance 10.0f
+#define centerAttrWeight 0.30f
+#define repulsionWeight 1.0f
 #define alignmentWeight 0.10f
 
 struct Boid
@@ -361,8 +361,8 @@ int main(int argc, char **argv) {
         host_boids[i].y = rand() % spaceSize;
         
         // Generate random velocities (-10 to 10)
-        host_boids[i].xVel = rand() % 21 - 10;
-        host_boids[i].yVel = rand() % 21 - 10;
+        host_boids[i].xVel = rand() % 41 - 20;
+        host_boids[i].yVel = rand() % 41 - 20;
         
         // Initialize acceleration to 0
         host_boids[i].xAcc = 0;
