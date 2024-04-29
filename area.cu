@@ -16,7 +16,7 @@
 #define spaceSize 10000
 #define numBoids  128
 #define numIters 5000
-#define visualRange 10000
+#define visualRange 100
 #define boidMass 1
 #define maxSpeed 100
 #define minDistance 5
@@ -25,8 +25,8 @@
 #define alignmentWeight 0.05
 
 // Blocks and grids are 2D now, these are parameters along one of the edges
-#define grid1Dim 20
-#define block1Dim 5
+#define grid1Dim 2
+#define block1Dim 2
 
 // For ease of programming and compiling
 #define L (visualRange / (spaceSize / (grid1Dim * block1Dim)) + 1) // visual range in terms of areas
@@ -252,7 +252,7 @@ __global__ void parallelFindStartEnd(BoidsContext* context)
 }
 
 // Helper function to assign data in the shared memory within blocks
-__device__ void fillSharedMem(BoidsContext* context, Boid*** nghBoids, int** nghBoidsLen,
+__device__ void fillSharedMem(BoidsContext* context, Boid* nghBoids[nghSide][nghSide], int nghBoidsLen[nghSide][nghSide],
         int nRelX, int nRelY, int nGlobalX, int nGlobalY)
 {
     int nghId = areaId(nGlobalX, nGlobalY);
@@ -266,7 +266,7 @@ __device__ void fillSharedMem(BoidsContext* context, Boid*** nghBoids, int** ngh
 // NOTE: 
 //  xDir = direction of x in the line(-1 = left, 0 = no move, 1 = right)
 //  yDir = direction of y in the line(-1 = up, 0 = no move, 1 = down)
-__device__ void fillSharedMemLine(BoidsContext* context, Boid*** nghBoids, int** nghBoidsLen,
+__device__ void fillSharedMemLine(BoidsContext* context, Boid* nghBoids[nghSide][nghSide], int nghBoidsLen[nghSide][nghSide],
         int relX, int relY, int globalX, int globalY, int xDir, int yDir)
 {
     for(int i = 1; i <= L 
@@ -284,7 +284,7 @@ __device__ void fillSharedMemLine(BoidsContext* context, Boid*** nghBoids, int**
 // NOTE: 
 //  xDir = direction of x in the line(-1 = left, 0 = no move, 1 = right)
 //  yDir = direction of y in the line(-1 = up, 0 = no move, 1 = down)
-__device__ void fillSharedMemSquare(BoidsContext* context, Boid*** nghBoids, int** nghBoidsLen,
+__device__ void fillSharedMemSquare(BoidsContext* context, Boid* nghBoids[nghSide][nghSide], int nghBoidsLen[nghSide][nghSide],
         int relX, int relY, int globalX, int globalY, int xDir, int yDir)
 {
     for(int i = 1; i <= L 
@@ -376,17 +376,25 @@ __global__ void areaCalcAcc(BoidsContext* context)
         int upperX = (currX + L >= gridDim.x * blockDim.x) ? currRelX + (gridDim.x*blockDim.x-1-currX): currRelX + L; //inclusive
         int upperY = (currY + L >= gridDim.y * blockDim.y) ? currRelY + (gridDim.y*blockDim.y-1-currY): currRelY + L;
 
+        // DEBUG - info
+        printf("BOUNDARIES: thread(%d, %d): lowerX = %d; upperX = %d; lowerY = %d; upperY = %d\n", currX, currY, lowerX, upperX, lowerY, upperY);
+        
         // Go through each neighboring grid in shared memory
         for(int x = lowerX; x <= upperX; x++)
         {
             for(int y = lowerY; y <= upperY; y++)
             {
+                // DEBUG - for every iteration of calculating
+                printf("thread(%d, %d): x = %d, y = %d\n", currX, currY, x, y);
                 int currIdx = (currRelX == x && currRelY == y) ? i - startIdx[aId] : -1;
                 Boid* nStartPtr = nghBoids[x][y];
                 int nghNumBoids = nghBoidsLen[x][y];
                 applyCenterAttr(boidCpy, currIdx, nStartPtr, nghNumBoids);
+                printf("thread(%d, %d): x = %d, y = %dAFTER CENTER ATTR\n", currX, currY, x, y);
                 applyAvoidOthers(boidCpy, currIdx, nStartPtr, nghNumBoids);
+                printf("thread(%d, %d): x = %d, y = %dAFTER AVOID OTHERS\n", currX, currY, x, y);
                 applyAlignment(boidCpy, currIdx, nStartPtr, nghNumBoids);
+                printf("thread(%d, %d): x = %d, y = %dAFTER VEL ALIGNMENT\n", currX, currY, x, y);
             }
         }
         boids[i] = boidCpy;
@@ -431,21 +439,17 @@ int main(int argc, char **argv)
     // TESTING CODE TO SEE SHARED MEMORY SIZE
     int device;
     cudaDeviceProp properties;
-
-    // Get device number
     cudaGetDevice(&device);
-
-    // Get device properties
     cudaGetDeviceProperties(&properties, device);
-
-    std::cout << "Total shared memory per block: " << properties.sharedMemPerBlock << " bytes" << std::endl;
+    std::cout << "Total shared memory per block: " << properties.sharedMemPerBlock << " bytes\n";
+    std::cout << "nghSide is: " << nghSide << "\n";
 
     // Allocate memory for host
     thrust::host_vector<Boid> boids;
 	
     // Initialize boids
     int gap = spaceSize / numBoids;
-    for(int i = 0; i < numBoids; i++)
+    for(int i = numBoids-1; i >= 0; i--)
     {
         Boid temp;
         temp.x = i * gap;
@@ -487,23 +491,81 @@ int main(int argc, char **argv)
 
     dim3 dimBlockLinear(block1Dim * block1Dim);
     dim3 dimGridLinear(grid1Dim * grid1Dim);
+
+
+    // // DEBUG - sorting - works!
+    // std::cout << "HERE0\n";
+    // for(int j = 0; j < numBoids; j++)
+    // {
+    //     ofile << "Boid " << j << ": " << boids[j].x << ", " << boids[j].y << "\n";
+    //     std::cout << "Boid " << j << ": " << boids[j].x << ", " << boids[j].y << "\n";
+    // }
+
+
     // Run all the timesteps
     if( clock_gettime( CLOCK_REALTIME, &start) == -1 ) { perror( "clock gettime" );}
     for(int i = 0; i < numIters; i++)
     {
         // Sort the boids such that boids in the same area are next to each other
         thrust::sort(gpu_boids.begin(), gpu_boids.end(), CompareByAreaId());
+
+        // // DEBUG - sorting - works!
+        // thrust::copy(gpu_boids.begin(), gpu_boids.end(), boids.begin());
+        // std::cout << "HERE PRINTING OUT AFTER SORT\n";
+        // for(int j = 0; j < numBoids; j++)
+        // {
+        //     ofile << "Boid " << j << ": " << boids[j].x << ", " << boids[j].y << "\n";
+        //     std::cout << "Boid " << j << ": " << boids[j].x << ", " << boids[j].y << "\n";
+        // }
+
         // Find start and end indices in "boids" for every area 
         thrust::fill(gpu_startIdx.begin(), gpu_startIdx.end(), INT_MAX);
         thrust::fill(gpu_endIdx.begin(), gpu_endIdx.end(), -1);
         parallelFindStartEnd <<< dimGridLinear, dimBlockLinear >>> (gpu_context);
+        cudaDeviceSynchronize();
+
+        // DEBUG - finding start + end - works!
+        // thrust::host_vector<int> h_startIdx = gpu_startIdx;
+        // thrust::host_vector<int> h_endIdx = gpu_endIdx;
+        // for(int j = 0; j < grid1Dim * grid1Dim * block1Dim * block1Dim; j++)
+        // {
+        //     std::cout << "start + end: " << h_startIdx[j] << ", " << h_endIdx[j] << "\n";
+        // }
+
+        // DEBUG
+        std::cout << "HERE2\n";
 
         areaCalcAcc <<< dimGrid, dimBlock >>> (gpu_context);
+        cudaDeviceSynchronize();
         checkCudaError("After areaCalcAcc");
+
+        // DEBUG - calculate acceleration - 
+        std::cout << "DEBUGGING CALC ACCECRATION\n";
+        thrust::copy(gpu_boids.begin(), gpu_boids.end(), boids.begin());
+        for(int j = 0; j < numBoids; j++)
+        {
+            std::cout << "Boid " << j << ": " << boids[j].xAcc << ", " << boids[j].yAcc << "\n";
+        }
+
+
+        // DEBUG
+        std::cout << "HERE3\n";
+
+
         areaUpdateBoids <<< dimGrid, dimBlock >>> (gpu_context);
+        cudaDeviceSynchronize();
         checkCudaError("After naiveUpdateBoids");
-        boids = gpu_boids;
+
+        // DEBUG
+        std::cout << "HERE4\n";
+
+        thrust::copy(gpu_boids.begin(), gpu_boids.end(), boids.begin());
         checkCudaError("After copying gpu_boids back to host");
+
+        // DEBUG
+        std::cout << "HERE5\n";
+
+
         // Print out the all the boids
         ofile << "ITERATION " << i << "\n";
         for(int j = 0; j < numBoids; j++)

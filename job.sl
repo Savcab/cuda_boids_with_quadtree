@@ -12,4 +12,4 @@ module purge
 module load nvidia-hpc-sdk
 module load gcc/8.3.0
 
-./naive
+./area
