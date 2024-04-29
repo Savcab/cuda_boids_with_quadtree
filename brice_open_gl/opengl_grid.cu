@@ -679,7 +679,7 @@ void timer(int value) {
     //     fprintf(stderr, "CUDA error during pointer consistency check: %s\n", cudaGetErrorString(error));
     // }
 
-    glutPostRedisplay();
+    // glutPostRedisplay();
     glutTimerFunc(16, timer, 0); // Call this timer function again after 16 milliseconds   
 }
 
