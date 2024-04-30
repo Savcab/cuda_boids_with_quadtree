@@ -641,13 +641,13 @@ void timer(int value) {
     thrust::sort(instance.gpu_boids.begin(), instance.gpu_boids.end(), CompareByAreaId());
     thrust::fill(instance.gpu_startIdx.begin(), instance.gpu_startIdx.end(), INT_MAX);
     thrust::fill(instance.gpu_endIdx.begin(), instance.gpu_endIdx.end(), -1);
-    // parallelFindStartEnd <<< instance.dimGridLinear, instance.dimBlockLinear >>> (instance.gpu_context);
-    // cudaDeviceSynchronize();
-    // areaCalcAcc <<< instance.dimGrid, instance.dimBlock >>> (instance.gpu_context);
-    // cudaDeviceSynchronize();
-    // checkCudaError("After areaCalcAcc");
-    // areaUpdateBoids <<< instance.dimGrid, instance.dimBlock >>> (instance.gpu_context);
-    // cudaDeviceSynchronize();
+    parallelFindStartEnd <<< instance.dimGridLinear, instance.dimBlockLinear >>> (instance.gpu_context);
+    cudaDeviceSynchronize();
+    areaCalcAcc <<< instance.dimGrid, instance.dimBlock >>> (instance.gpu_context);
+    cudaDeviceSynchronize();
+    checkCudaError("After areaCalcAcc");
+    areaUpdateBoids <<< instance.dimGrid, instance.dimBlock >>> (instance.gpu_context);
+    cudaDeviceSynchronize();
 
     //printBoidDetails<<<1, 1>>>(instance.gpu_context, 2);
     // cudaDeviceSynchronize();
@@ -683,7 +683,7 @@ void timer(int value) {
     // }
 
     glutPostRedisplay();
-    // glutTimerFunc(16, timer, 0); // Call this timer function again after 16 milliseconds   
+    glutTimerFunc(16, timer, 0); // Call this timer function again after 16 milliseconds   
 }
 
 
