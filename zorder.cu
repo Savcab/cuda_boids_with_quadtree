@@ -65,12 +65,12 @@ struct BoidsContext
 };
 
 // Helper function to convert xy thread coordinate to areaId
-__device__ __host__ int areaId(unsigned int myThreadX, unsigned int myThreadY)
+__device__ __host__ int areaId(int myThreadX, int myThreadY)
 {
     int numAreas1D = block1Dim * grid1Dim;
     int areaSide = spaceSize / numAreas1D;
-    unsigned int x = (int)boid.x / areaSide;
-    unsigned int y = (int)boid.y / areaSide;
+    unsigned int x = (int)myThreadX / areaSide;
+    unsigned int y = (int)myThreadY / areaSide;
     // Interleave bits to find z order score
     unsigned int z = 0;
     unsigned int mask = 0x00000001;
