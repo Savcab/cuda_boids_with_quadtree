@@ -110,7 +110,7 @@ __device__ __host__ int areaId(const Boid& boid)
 }
 
 // Helper function to convert xy thread coordinate to areaId
-__device__ int areaId(int myThreadX, int myThreadY)
+__device__ __host__ int areaId(int myThreadX, int myThreadY)
 {
     int numAreas1D = block1Dim * grid1Dim;
     return myThreadX + myThreadY * numAreas1D;
@@ -632,6 +632,7 @@ void printBoids(thrust::host_vector<Boid> boids)
     for(int i = 0; i < numBoids; i++)
     {
         std::cout << "area ID: " << areaId(boids[i]) << "\n";
+        std::cout << "XY coord: ()" << boids[i].x << ", " << boids[i].y << ")\n";
     }
 }
 
