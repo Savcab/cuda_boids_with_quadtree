@@ -101,6 +101,43 @@ __global__ void updateVBO(float *vbo, Boid *boids, int nBoids) {
     }
 }
 
+// Start is inclusive, end is exclusive
+__device__ __host__ int zOrderHelper(int x, int y, int startX, int startY, int endX, int endY, int currZVal)
+{
+    // base case
+    if(endX - startX == 1 && endY - startY == 1)
+    {
+        return currZVal;
+    }
+    // Recursive step
+    int midX = (startX + endX) / 2; //exclusive
+    int midY = (startY + endY) / 2; //exclusive
+    int area = (endX - startX) * (endY - startY);
+    if(x < midX)
+    {
+        // Upper left
+        if(y < midY)
+        {
+            return zOrderHelper(x, y, startX, startY, midX, midY, currZVal);
+        }
+        else
+        {
+            return zOrderHelper(x, y, startX, midY, midX, endY, currZVal + area/4 * 2);
+        }
+    }
+    else 
+    {
+        if(y < midY)
+        {
+            return zOrderHelper(x, y, midX, startY, endX, midY, currZVal + area/4);
+        }
+        else
+        {
+            return zOrderHelper(x, y, midX, midY, endX, endY, currZVal + area/4 * 3);
+        }
+    }
+}
+
 // Helper function to convert xy thread coordinate to areaId
 __device__ __host__ int areaId(int myThreadX, int myThreadY)
 {
@@ -108,15 +145,17 @@ __device__ __host__ int areaId(int myThreadX, int myThreadY)
     int areaSide = spaceSize / numAreas1D;
     unsigned int x = (int)myThreadX / areaSide;
     unsigned int y = (int)myThreadY / areaSide;
-    // Interleave bits to find z order score
-    unsigned int z = 0;
-    unsigned int mask = 0x00000001;
-    for (unsigned int i = 0; i < sizeof(unsigned int) * 8; ++i) {
-        unsigned int xb = (x & (mask << i)) >> i;
-        unsigned int yb = (y & (mask << i)) >> i;
-        z |= (xb << (2 * i)) | (yb << (2 * i + 1));
-    }
-    return (int)z;
+    // // Interleave bits to find z order score
+    // unsigned int z = 0;
+    // unsigned int mask = 0x00000001;
+    // for (unsigned int i = 0; i < sizeof(unsigned int) * 8; ++i) {
+    //     unsigned int xb = (x & (mask << i)) >> i;
+    //     unsigned int yb = (y & (mask << i)) >> i;
+    //     z |= (xb << (2 * i)) | (yb << (2 * i + 1));
+    // }
+    // std::cout << "areaID returned: " << (int)z << "\n";
+    // return (int)z;
+    return zOrderHelper(x, y, 0, 0, block1Dim*grid1Dim, block1Dim*grid1Dim, 0);
 }
 
 // Helper function to return which area this boid belongs to

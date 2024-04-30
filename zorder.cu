@@ -66,7 +66,7 @@ struct BoidsContext
 
 
 // Start is inclusive, end is exclusive
-__device__ zOrderHelper(int x, int y, int startX, int startY, int endX, int endY, int currZVal)
+__device__ __host__ int zOrderHelper(int x, int y, int startX, int startY, int endX, int endY, int currZVal)
 {
     // base case
     if(endX - startX == 1 && endY - startY == 1)
@@ -82,22 +82,22 @@ __device__ zOrderHelper(int x, int y, int startX, int startY, int endX, int endY
         // Upper left
         if(y < midY)
         {
-            zOrderHelper(x, y, startX, startY, midX, midY, currZVal);
+            return zOrderHelper(x, y, startX, startY, midX, midY, currZVal);
         }
         else
         {
-            zOrderHelper(x, y, startX, midY, midX, endY, currZVal + area/4 * 2);
+            return zOrderHelper(x, y, startX, midY, midX, endY, currZVal + area/4 * 2);
         }
     }
     else 
     {
         if(y < midY)
         {
-            zOrderHelper(x, y, midX, startY, endX, midY, currZVal + area/4);
+            return zOrderHelper(x, y, midX, startY, endX, midY, currZVal + area/4);
         }
         else
         {
-            zOrderHelper(x, y, midX, midY, endX, endY, currZVal + area/4 * 3);
+            return zOrderHelper(x, y, midX, midY, endX, endY, currZVal + area/4 * 3);
         }
     }
 }
