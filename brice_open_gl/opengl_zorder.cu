@@ -22,10 +22,10 @@ struct cudaGraphicsResource *cuda_vbo_resource; // CUDA Graphics Resource for ma
 
 // #define INT_MAX 2147483647
 
-#define spaceSize 10000
-#define numBoids  5000
+#define spaceSize 1024
+#define numBoids  2000
 #define numIters 5000
-#define visualRange 40
+#define visualRange 100
 #define boidMass 2.0f
 #define maxSpeed 50.0f
 #define minDistance 10.0f
@@ -34,8 +34,8 @@ struct cudaGraphicsResource *cuda_vbo_resource; // CUDA Graphics Resource for ma
 #define alignmentWeight 0.10f
 
 // Blocks and grids are 2D now, these are parameters along one of the edges
-#define grid1Dim 8
-#define block1Dim 8
+#define grid1Dim 4
+#define block1Dim 4
 
 // For ease of programming and compiling
 #define L (visualRange / (spaceSize / (grid1Dim * block1Dim)) + 1) // visual range in terms of areas
