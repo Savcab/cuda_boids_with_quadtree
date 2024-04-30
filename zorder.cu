@@ -519,7 +519,7 @@ int main(int argc, char **argv)
         // oTestFile << boids[0].x << " " << boids[0].y << "\n";
     }
    if( clock_gettime( CLOCK_REALTIME, &stop) == -1 ) { perror( "clock gettime" );}	  
-    ofile.close();
+    // ofile.close();
     time = (stop.tv_sec - start.tv_sec)+ (double)(stop.tv_nsec - start.tv_nsec)/1e9;
     printf("time is %.9f\n", time*1e9);
 
