@@ -556,7 +556,7 @@ void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glLoadIdentity();
 
-    printBoidDetails<<<1, 1>>>(instance.gpu_context, 2);
+    // printBoidDetails<<<1, 1>>>(instance.gpu_context, 2);
     cudaDeviceSynchronize();
     // Draw boids
     for (int i = 0; i < numBoids; ++i) {
@@ -627,7 +627,7 @@ __global__ void checkPointerConsistency(Boid* directPointer, BoidsContext* conte
 }
 
 
-void printBoids(Boid* boids)
+void printBoids(thrust::host_vector<Boid> boids)
 {
     for(int i = 0; i < numBoids; i++)
     {
