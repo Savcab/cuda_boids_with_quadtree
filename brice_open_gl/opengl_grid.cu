@@ -660,11 +660,6 @@ void timer(int value) {
     thrust::copy(instance.gpu_boids.begin(), instance.gpu_boids.end(), instance.boids.begin());
     cudaDeviceSynchronize();
 
-    // DEBUG
-    std::cout << "HERE0\n";
-    printBoids(instance.boids);
-
-
     checkCudaError("After copying gpu_boids back to host");
     // for (int i = 0; i < numBoids; i++) {
     //     int targetID = 2;
