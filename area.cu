@@ -14,7 +14,7 @@
 // #define INT_MAX 2147483647
 
 #define spaceSize 10000
-#define numBoids  128
+#define numBoids  1000
 #define numIters 5000
 #define visualRange 100
 #define boidMass 1
@@ -25,8 +25,8 @@
 #define alignmentWeight 0.05
 
 // Blocks and grids are 2D now, these are parameters along one of the edges
-#define grid1Dim 2
-#define block1Dim 2
+#define grid1Dim 8
+#define block1Dim 8
 
 // For ease of programming and compiling
 #define L (visualRange / (spaceSize / (grid1Dim * block1Dim)) + 1) // visual range in terms of areas
@@ -430,13 +430,6 @@ struct CompareByAreaId {
 
 int main(int argc, char **argv)
 {
-    // TESTING CODE TO SEE SHARED MEMORY SIZE
-    int device;
-    cudaDeviceProp properties;
-    cudaGetDevice(&device);
-    cudaGetDeviceProperties(&properties, device);
-    std::cout << "Total shared memory per block: " << properties.sharedMemPerBlock << " bytes\n";
-    std::cout << "nghSide is: " << nghSide << "\n";
 
     // Allocate memory for host
     thrust::host_vector<Boid> boids;
@@ -476,8 +469,8 @@ int main(int argc, char **argv)
     // start time
     struct timespec start, stop; 
     double time;
-    std::ofstream ofile("output.txt");
-    std::ofstream oTestFile("test.txt");
+    // std::ofstream ofile("output.txt");
+    // std::ofstream oTestFile("test.txt");
 
     // Start calling the gpu
     dim3 dimBlock(block1Dim, block1Dim);
@@ -510,12 +503,12 @@ int main(int argc, char **argv)
         thrust::copy(gpu_boids.begin(), gpu_boids.end(), boids.begin());
         checkCudaError("After copying gpu_boids back to host");
         // Print out the all the boids
-        ofile << "ITERATION " << i << "\n";
-        for(int j = 0; j < numBoids; j++)
-        {
-            ofile << "Boid " << j << ": " << boids[j].x << ", " << boids[j].y << "\n";
-        }
-        oTestFile << boids[0].x << " " << boids[0].y << "\n";
+        // ofile << "ITERATION " << i << "\n";
+        // for(int j = 0; j < numBoids; j++)
+        // {
+        //     ofile << "Boid " << j << ": " << boids[j].x << ", " << boids[j].y << "\n";
+        // }
+        // oTestFile << boids[0].x << " " << boids[0].y << "\n";
     }
    if( clock_gettime( CLOCK_REALTIME, &stop) == -1 ) { perror( "clock gettime" );}	  
     ofile.close();
