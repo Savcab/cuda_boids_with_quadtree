@@ -64,20 +64,13 @@ struct BoidsContext
     int* endIdx;
 };
 
-// Helper function to return which area this boid belongs to
-__device__ __host__ int areaId(const Boid& boid)
+// Helper function to convert xy thread coordinate to areaId
+__device__ __host__ int areaId(unsigned int myThreadX, unsigned int myThreadY)
 {
     int numAreas1D = block1Dim * grid1Dim;
     int areaSide = spaceSize / numAreas1D;
     unsigned int x = (int)boid.x / areaSide;
     unsigned int y = (int)boid.y / areaSide;
-    return areaId(x, y);
-}
-
-// Helper function to convert xy thread coordinate to areaId
-__device__ __host__ int areaId(unsigned int myThreadX, unsigned int myThreadY)
-{
-    int numAreas1D = block1Dim * grid1Dim;
     // Interleave bits to find z order score
     unsigned int z = 0;
     unsigned int mask = 0x00000001;
@@ -87,6 +80,12 @@ __device__ __host__ int areaId(unsigned int myThreadX, unsigned int myThreadY)
         z |= (xb << (2 * i)) | (yb << (2 * i + 1));
     }
     return (int)z;
+}
+
+// Helper function to return which area this boid belongs to
+__device__ __host__ int areaId(const Boid& boid)
+{
+    return areaId(boid.x, boid.y);
 }
 
 // Helper function to calculate distance between two boids
