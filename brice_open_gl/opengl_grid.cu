@@ -523,7 +523,7 @@ private:
                 0.0f,  // Already float, no cast needed
                 0.0f   // Already float, no cast needed
             };
-            boids.push_back(temp);
+            boids[i] = temp;
         }
         gpu_boids = thrust::device_vector<Boid>(boids);
         gpu_startIdx = thrust::device_vector<int>(grid1Dim * block1Dim * grid1Dim * block1Dim, INT_MAX);
@@ -661,6 +661,7 @@ void timer(int value) {
     cudaDeviceSynchronize();
 
     // DEBUG
+    std::cout << "HERE0\n";
     printBoids(instance.boids);
 
 
